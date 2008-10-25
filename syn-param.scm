@@ -1,6 +1,6 @@
 ;;; -*- Mode: Scheme -*-
 
-;;;; Operators with Extended Parameter Syntax, Version 1
+;;;; Operators with Extended Parameter Syntax, Version 2
 
 ;;; This code is written by Taylor R. Campbell and placed in the Public
 ;;; Domain.  All warranties are disclaimed.
@@ -9,29 +9,74 @@
 ;;;
 ;;;   (define (foo x y z) ...)
 ;;;
-;;;   (with-extended-parameter-operators
-;;;       ((foo* (foo (x . 0) (y . 0) (z . 0))))
-;;;     (foo* 5 (=> z 3) (=> y 1)))
-;;; <=>
+;;;   (with-extended-parameter-operators*
+;;;       ((foo* (<-)
+;;;          (foo (x (x <- ?value) ?value 0)
+;;;               (y (y <- ?value) ?value 0)
+;;;               (z (z <- ?value) ?value 0))))
+;;;     (foo* 5             ;First argument corresponds with X.
+;;;           z <- 3        ;Named argument Z
+;;;           y <- 1))      ;Named argument Y
+;;;     <=>
 ;;;   (foo 5 1 3)
-
+;;;
+;;; WITH-EXTENDED-PARAMETER-OPERATORS* binds FOO* to a macro that
+;;; accepts arguments by position or by a named pattern.  The first
+;;; arguments are positional, corresponding with the parameter
+;;; positions X, Y, and Z.  Following any positional arguments are
+;;; named arguments, which match the patterns like (X <- ?VALUE), (Y <-
+;;; ?VALUE), and so on.  These patterns are SYNTAX-RULES patterns,
+;;; where the names in (<-) and the name of the parameter are taken
+;;; literally.  ?VALUE is the expression for the parameter's value, and
+;;; 0 is the default value if none was supplied.  Once all arguments
+;;; have been processed, FOO* expands to a positional call to FOO.
+;;;
+;;; The patterns are actually spliced into the parameter list of the
+;;; FOO* macro; that's why we wrote (FOO* ... Z <- 3 ...) without any
+;;; parentheses.  One must write the pattern with a double layer of
+;;; parentheses to require that the named parameter be passed with a
+;;; single layer of parentheses.  Also, each pattern must contain the
+;;; parameter's name; otherwise the macro would be unable to
+;;; distinguish it from the pattern for any other parameter.  However,
+;;; the patterns need not have similar structure; they could be (X ->
+;;; ?VALUE), ((=> Z ?VALUE)), (?VALUE Z ZORGLEBLOT), and so on.
+;;;
+;;; There is a simpler form, WITH-EXTENDED-PARAMETER-OPERATORS, which
+;;; implements a common pattern of (=> <name> <value>).  This is what
+;;; foof-loop, for which this code was originally written, uses.  For example,
+;;;
+;;;   (with-extended-parameter-operators
+;;;       ((foo*
+;;;         (foo (x . 0)             ;Note the dotted list.
+;;;              (y . 0)
+;;;              (z . 0))))
+;;;     (foo* 5 (=> z 3) (=> y 1)))
+;;;     <=>
+;;;   (foo 5 1 3)
+
 ;;; I have *voluminously* commented this hideous macro of astonishing
 ;;; complexity in the hopes that it can be read by any other than
 ;;; macrological deities.  I use syntactic continuation-passing style
 ;;; in one small place, for a discussion of which the reader should see
-;;; the Hilsdale paper; everything else is just mutually tail-recursive
-;;; local macros.
+;;; the Hilsdale & Friedman paper [1]; everything else is just mutually
+;;; tail-recursive local macros.
+;;;
+;;; [1] Erik Hilsdale and Daniel P. Friedman.  `Writing Macros in
+;;; Continuation-Passing Style'.  Scheme and Functional Programming
+;;; 2000, pp. 53--60, September 2000.  Available on the web:
+;;; <http://repository.readscheme.org/ftp/papers/sw2000/hilsdale.ps.gz>
 
 ;;; The question mark prefix indicates pattern variables.
 ;;; The number of question marks indicates the nesting depth
 ;;; of the macro which introduced the pattern variable.
 ;;; An asterisk marks a syntactic continuation's environment.
 
-(define-syntax with-extended-parameter-operators
+(define-syntax with-extended-parameter-operators*
   (syntax-rules ()
-    ((with-extended-parameter-operators
-         ((?labelled-argument-macro-name
-           (?positional-form-name (?parameter . ?default)
+    ((with-extended-parameter-operators*
+         ((?extended-argument-macro-name
+           (?named-parameter-literal ...)
+           (?positional-form-name (?parameter (?pattern ...) ?value ?default)
                                   ...))
           ...)
        ?body0
@@ -39,9 +84,9 @@
        ...)
 
      (letrec-syntax
-         ((?labelled-argument-macro-name
+         ((?extended-argument-macro-name
            (syntax-rules ()
-             ((?labelled-argument-macro-name . ??arguments)
+             ((?extended-argument-macro-name . ??arguments)
               (letrec-syntax
                   ((apply-positional
                     (syntax-rules ()
@@ -62,7 +107,7 @@
                    ;; ???ARGUMENTS is the list of remaining argument
                    ;; expressions in the input.
                    (process-positionals
-                    (syntax-rules (=>)
+                    (syntax-rules (?named-parameter-literal ... ?parameter ...)
 
                       ;; No more parameters -- ignore the remaining
                       ;; arguments (signal a syntax error?), and just
@@ -80,12 +125,13 @@
                       ;; PROCESS-NAMED.
                       ((process-positionals ???parameters
                                             ???positionals
-                                            (=> ???parameter ???argument)
+                                            ?pattern ...
                                             . ???arguments)
                        (process-named ???parameters
                                       ???positionals
-                                      (=> ???parameter ???argument)
+                                      ?pattern ...
                                       . ???arguments))
+                      ...               ;***
 
                       ;; Positional argument -- accumulate and
                       ;; proceed.
@@ -171,21 +217,23 @@
                    ;; parameter specifier.  If none exists, use the
                    ;; default given.
                    (match-parameter-by-name
-                    (syntax-rules (=> ?parameter ...)
+                    (syntax-rules (?named-parameter-literal ... ?parameter ...)
 
                       ;; For each of the possible named parameters, if
                       ;; it matches this one, use it -- add the
                       ;; corresponding argument expression to the list
                       ;; of positionals.
                       ((match-parameter-by-name
-                        ((=> ?parameter ???value) . ???arguments)
+                        (?pattern ... . ???arguments)
                         ?parameter
                         ???default
                         (???continuation . ???environment))
-                       (???continuation ???value . ???environment))
+                       (???continuation ?value . ???environment))
                       ...               ;***
 
                       ;; Argument does not match -- skip it.
+                      ;++ Is this right?  Ought we not to signal a
+                      ;++ syntax error?
                       ((match-parameter-by-name (???argument . ???arguments)
                                                 ???parameter
                                                 ???default
@@ -228,4 +276,29 @@
 
        ?body0
        ?body1
+       ...))))
+
+;;; This is the original WITH-EXTENDED-PARAMETER-OPERATORS, specialized
+;;; to an extended parameter pattern of (=> <name> <value>), which is
+;;; what foof-loop uses.
+
+(define-syntax with-extended-parameter-operators
+  (syntax-rules ()
+    ((with-extended-parameter-operators
+         ((?extended-argument-macro-name
+           (?positional-form-name (?parameter . ?default)
+                                  ...))
+          ...)
+       body0
+       body1
+       ...)
+     (with-extended-parameter-operators*
+         ((?extended-argument-macro-name
+           (=>)
+           (?positional-form-name
+            (?parameter ((=> ?parameter ??value)) ??value ?default)
+            ...))
+          ...)
+       body0
+       body1
        ...))))
