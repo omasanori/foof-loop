@@ -1,6 +1,6 @@
 ;;; -*- Mode: Scheme -*-
 
-;;;; Extensible Looping Macros, version 5
+;;;; Extensible Looping Macros, version 6
 
 ;;; This code is written by Taylor R. Campbell and placed in the Public
 ;;; Domain.  All warranties are disclaimed.
@@ -18,7 +18,7 @@
 ;;; - that there are three new iterators: IN-LISTS, IN-NUMBERS, and
 ;;;   IN-STRINGS-REVERSE.
 ;;;
-;;; This file depends on sys-param.scm, also by Taylor R. Campbell, and
+;;; This file depends on syn-param.scm, also by Taylor R. Campbell, and
 ;;; SRFI 11 (LET-VALUES).
 
 (define-syntax loop
@@ -39,9 +39,10 @@
 ;;; SYNTAX-ERROR procedure, since it must signal a compile-time error.
 ;;;
 ;;;   (define-syntax syntactic-error (syntax-rules ()))
-
+
 (define-syntax %loop
-  (syntax-rules (=> FOR LET START GO PARSE-FOR CONTINUE FINISH)
+  (syntax-rules (=> FOR LET WHILE UNTIL
+                    START GO PARSE-FOR CONTINUE FINISH)
 
     ((%LOOP START name loop-clauses body)
      (%LOOP GO name (() () () () () ()) loop-clauses body))
@@ -120,9 +121,6 @@
             loop-clauses
             body))
 
-    ((%LOOP GO name state ((variable initializer) . loop-clauses) body)
-     (%LOOP GO name state ((LET variable initializer) . loop-clauses) body))
-
     ((%LOOP GO name state
             ((LET variable initializer) . loop-clauses)
             body)
@@ -142,8 +140,43 @@
             loop-clauses
             body))
 
+    ((%LOOP GO name
+            (outer-bindings
+             loop-variables
+             entry-bindings
+             (termination-condition ...)
+             body-bindings
+             final-bindings)
+            ((UNTIL user-termination-condition) . loop-clauses)
+            body)
+     (%LOOP GO name
+            (outer-bindings
+             loop-variables
+             entry-bindings
+             (termination-condition ... user-termination-condition)
+             body-bindings
+             final-bindings)
+            loop-clauses
+            body))
+
+    ((%LOOP GO name state ((WHILE condition) . loop-clauses) body)
+     (%LOOP GO name state ((UNTIL (NOT condition)) . loop-clauses) body))
+
+    ;; Compatibility forms.  These clauses *must* come after all
+    ;; others, because there is no keyword, so these would shadow any
+    ;; clauses with keywords.
+
+    ((%LOOP GO name state ((variable initializer) . loop-clauses) body)
+     (%LOOP GO name state ((LET variable initializer) . loop-clauses) body))
+
+    ((%LOOP GO name state ((variable initializer stepper) . loop-clauses) body)
+     (%LOOP GO name state ((LET variable initializer stepper) . loop-clauses)
+            body))
+
     ((%LOOP GO name state (clause . loop-clauses) body)
      (SYNTACTIC-ERROR "Malformed LOOP clause:" clause))
+
+;;; The actual loop output.
 
     ((%LOOP GO name state () (=> result-form . body))
      (%LOOP FINISH name state result-form body))
@@ -177,6 +210,13 @@
                                        ...)))
                    . body)))))
        (LOOP-PROCEDURE loop-initializer ...)))))
+
+;;; Utility for reporting syntax errors.
+
+(define-syntax loop-clause-error
+  (syntax-rules ()
+    ((LOOP-CLAUSE-ERROR (macro (variable ...) arguments message))
+     (SYNTACTIC-ERROR message (FOR variable ... (macro . arguments))))))
 
 ;;;; Accumulators
 
@@ -329,24 +369,33 @@
 
 ;;;;; Numerical Accumulators
 
-;;; MULTIPLYING and SUMMING have no INITIAL parameter because you can
-;;; just tack it on after the fact, which is not the case of most other
-;;; accumulators.
-
 (define-syntax summing
-  (syntax-rules ()
-    ((SUMMING variables arguments next . rest)
-     (%ACCUMULATING variables arguments ()
-                    (0 +)
+  (syntax-rules (INITIAL)
+    ((SUMMING variables ((INITIAL initial-expression) . arguments) next . rest)
+     (%ACCUMULATING variables arguments () (initial-expression +)
                     (SUMMING variables arguments
+                             "Malformed SUMMING clause in LOOP:")
+                    next . rest))
+
+    ((SUMMING variables arguments next . rest)
+     (%ACCUMULATING variables arguments () (0 +)
+                    (SUMMING variables
+                             ((INITIAL initial-expression) . arguments)
                              "Malformed SUMMING clause in LOOP:")
                     next . rest))))
 
 (define-syntax multiplying
-  (syntax-rules ()
+  (syntax-rules (INITIAL)
+    ((MULTIPLYING variables ((INITIAL initial-expression) . arguments)
+                  next . rest)
+     (%ACCUMULATING variables arguments () (initial-expression *)
+                    (MULTIPLYING variables
+                                 ((INITIAL initial-expression) . arguments)
+                                 "Malformed MULTIPLYING clause in LOOP:")
+                    next . rest))
+
     ((MULTIPLYING variables arguments next . rest)
-     (%ACCUMULATING variables arguments ()
-                    (1 *)
+     (%ACCUMULATING variables arguments () (1 *)
                     (MULTIPLYING variables arguments
                                  "Malformed MULTIPLYING clause in LOOP:")
                     next . rest))))
@@ -355,27 +404,26 @@
   (syntax-rules ()
     ((MAXIMIZING variables arguments next . rest)
      (%EXTREMIZING variables arguments MAX
-                   (MAXIMIZING "Malformed MAXIMIZING clause in LOOP:")
+                   (MAXIMIZING variables arguments
+                               "Malformed MAXIMIZING clause in LOOP:")
                    next . rest))))
 
 (define-syntax minimizing
   (syntax-rules ()
     ((MINIMIZING variables arguments next . rest)
      (%EXTREMIZING variables arguments MIN
-                   (MINIMIZING "Malformed MINIMIZING clause in LOOP:")
+                   (MINIMIZING variables arguments
+                               "Malformed MINIMIZING clause in LOOP:")
                    next . rest))))
 
 (define-syntax %extremizing
   (syntax-rules (INITIAL)
-    ((%EXTREMIZING variables ((INITIAL init-expression) . arguments)
+    ((%EXTREMIZING variables ((INITIAL initial-expression) . arguments)
                    chooser
-                   (macro message)
-                   next . rest)
-     (%ACCUMULATING variables arguments (((INIT) init-expression))
-                    (INIT chooser)
-                    (macro variables ((INITIAL init-expression) . arguments)
-                           message)
-                    next . rest))
+                   error-context next . rest)
+     (%ACCUMULATING variables arguments (((INITIAL-VALUE) initial-expression))
+                    (INITIAL-VALUE chooser)
+                    error-context next . rest))
 
     ((%EXTREMIZING variables arguments chooser (macro message) next . rest)
      (%ACCUMULATING variables arguments ()
@@ -383,8 +431,7 @@
                           (IF (AND DATUM EXTREME)
                               (chooser DATUM EXTREME)
                               (OR DATUM EXTREME))))
-                    (macro variables arguments message)
-                    next . rest))))
+                    error-context next . rest))))
 
 (define-syntax %accumulating
   (syntax-rules ()
@@ -417,10 +464,8 @@
 
     ;; The user supplied more than one variable.  Lose lose.
     ((%ACCUMULATING variables arguments outer-bindings parameters
-                    (macro (variable ...) original-arguments message)
-                    next . rest)
-     (SYNTACTIC-ERROR message
-                      (FOR variable ... (macro . original-arguments))))))
+                    error-context next . rest)
+     (LOOP-CLAUSE-ERROR error-context))))
 
 (define-syntax %%%accumulating
   (syntax-rules ()
@@ -480,10 +525,8 @@
                       final-bindings next . rest))
 
     ((%%ACCUMULATING arguments parameters outer-bindings final-bindings
-                     (macro (variable ...) original-arguments message)
-                     next . rest)
-     (SYNTACTIC-ERROR message
-                      (FOR variable ... (macro . original-arguments))))))
+                     error-context next . rest)
+     (LOOP-CLAUSE-ERROR error-context))))
 
 ;;;; List Iteration
 
@@ -563,8 +606,7 @@
 
 ;++ These have the aesthetically displeasing property that the index
 ;++ variable is bound in the final expression to a bogus value (equal
-;++ to the end bound).  Also, the reverse iterators will yield
-;++ intermediate negative numbers.
+;++ to the end bound).
 
 (define-syntax in-vector
   (syntax-rules ()
@@ -628,7 +670,7 @@
 
     ((%IN-VECTOR (BACKWARD
                   vector-ref vector-variable default-start default-end)
-                 (element-variable index-variabl)
+                 (element-variable index-variable)
                  (vector-expression start-expression end-expression)
                  error-context next . rest)
      (next (((vector-variable START END);Outer bindings
@@ -668,9 +710,8 @@
                  error-context next . rest))
 
     ((%IN-VECTOR iteration-parameters modified-variables modified-arguments
-                 (macro (variable ...) . arguments)
-                 next . rest)
-     (SYNTACTIC-ERROR error-message (FOR variable ... (macro . arguments))))))
+                 error-context next . rest)
+     (LOOP-CLAUSE-ERROR error-context))))
 
 ;;;; Input
 
@@ -705,7 +746,7 @@
 
     ((IN-PORT (variable ...) arguments next . rest)
      (SYNTACTIC-ERROR "Malformed IN-PORT clause in LOOP:"
-                      (FOR variable ... (IN-FILE . arguments))))))
+                      (FOR variable ... (IN-PORT . arguments))))))
 
 (define-syntax in-file
   (syntax-rules ()
