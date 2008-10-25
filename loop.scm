@@ -1,6 +1,6 @@
 ;;; -*- Mode: Scheme -*-
 
-;;;; Extensible Looping Macros, version 7
+;;;; Extensible Looping Macros, version 8
 
 ;;; This code is written by Taylor R. Campbell and placed in the Public
 ;;; Domain.  All warranties are disclaimed.
