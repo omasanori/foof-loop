@@ -75,6 +75,24 @@
                                ((name . arguments)
                                 (LAZY (EAGER-LOOP . arguments))))))
                  body0 body1+ ...)))))))
+
+;;; Randomness.
+
+(define-syntax syntactic-name-member?
+  (syntax-rules ()
+    ((SYNTACTIC-NAME-MEMBER? item () if-yes if-no) if-no)
+    ((SYNTACTIC-NAME_MEMBER? item (item* . items) if-yes if-no)
+     (SYNTACTIC-NAME=? item item*
+       if-yes
+       (SYNTACTIC-NAME-MEMBER? item items if-yes if-no)))))
+
+(define-syntax syntactic-name=?
+  (syntax-rules ()
+    ((SYNTACTIC-NAME=? a b if-yes if-no)
+     (LET-SYNTAX ((TEST (SYNTAX-RULES (a)
+                          ((TEST a YES NO) YES)
+                          ((TEST OTHER YES NO) NO))))
+       (TEST b if-yes if-no)))))
 
 ;;;; Error Reporting
 
@@ -194,7 +212,8 @@
 
 (define-syntax %loop
   (syntax-rules (=> FOR WITH LET LET-VALUES WHILE UNTIL
-                    START GO PARSE-FOR CONTINUE FINISH SIMPLIFY-BODY)
+                    START GO PARSE-FOR CONTINUE FINISH FIX-LITERALS FINISH*
+                    SIMPLIFY-BODY)
 
     ((%LOOP START name loop-clauses body)
      (%LOOP GO name (() () () () () () () ()) loop-clauses body))
@@ -247,6 +266,46 @@
      (SYNTACTIC-ERROR "Malformed FOR clause in LOOP:" original-clause))
 
     ((%LOOP ((outer-bvl outer-producer) ...)
+            ((loop-variable initializer literals pattern stepper default) ...)
+            ((entry-bvl entry-producer) ...)
+            (termination-condition ...)
+            ((body-bvl body-producer) ...)
+            ((final-bvl final-producer) ...)
+            CONTINUE
+            iterator
+            name
+            ((loop-variables ...)
+             user-bindings
+             user-termination-conditions
+             outer-bindings
+             entry-bindings
+             termination-conditions
+             body-bindings
+             final-bindings)
+            loop-clauses
+            body)
+     (SYNTACTIC-ERROR-IF-NOT-NAMES (loop-variable ...)
+         ("Internal error -- Malformed loop variables from iterator:" iterator)
+       (SYNTACTIC-ERROR-IF-NOT-BVLS
+           (outer-bvl ... entry-bvl ... body-bvl ... final-bvl ...)
+           ("Internal error -- Malformed BVLs from iterator:" iterator)
+         (%LOOP GO name
+                ((loop-variables ...    ;** Preserve order.
+                  (loop-variable initializer literals pattern stepper default)
+                  ...)
+                 user-bindings
+                 user-termination-conditions
+                 ((outer-bvl outer-producer) ... . outer-bindings)
+                 ((entry-bvl entry-producer) ... . entry-bindings)
+                 (termination-condition ... . termination-conditions)
+                 ((body-bvl body-producer) ... . body-bindings)
+                 ((final-bvl final-producer) ... . final-bindings))
+                loop-clauses
+                body))))
+
+    ;;; Older form, retained for compatibility.
+
+    ((%LOOP ((outer-bvl outer-producer) ...)
             ((loop-variable loop-initializer loop-stepper) ...)
             ((entry-bvl entry-producer) ...)
             (termination-condition ...)
@@ -272,7 +331,11 @@
            ("Internal error -- Malformed BVLs from iterator:" iterator)
          (%LOOP GO name
                 ((loop-variables ...    ;** Preserve order.
-                  (loop-variable loop-initializer loop-stepper) ...)
+                  (loop-variable loop-initializer
+                                 (=>)
+                                 ((=> loop-variable ?VALUE))
+                                 ?VALUE
+                                 loop-stepper) ...)
                  user-bindings
                  user-termination-conditions
                  ((outer-bvl outer-producer) ... . outer-bindings)
@@ -296,13 +359,18 @@
 
     ((%LOOP GO name
             ((loop-variable ...) . more-state)
-            ((WITH variable initializer stepper) . loop-clauses)
+            ((WITH variable initializer default) . loop-clauses)
             body)
      (SYNTACTIC-ERROR-IF-NOT-NAME variable
-         ("Malformed WITH clause in LOOP:" (WITH variable initializer stepper))
+         ("Malformed WITH clause in LOOP:" (WITH variable initializer default))
        (%LOOP GO name
               ;; Preserve ordering of the user's loop variables.
-              ((loop-variable ... (variable initializer stepper))
+              ((loop-variable ...
+                (variable initializer
+                          (=>)
+                          ((=> variable ?VALUE))
+                          ?VALUE
+                          default))
                . more-state)
               loop-clauses
               body)))
@@ -375,7 +443,32 @@
      (%LOOP FINISH name state (IF #F #F) body))
 
     ((%LOOP FINISH name
-            (((loop-variable loop-initializer loop-stepper) ...)
+            (((loop-variable initializer literals pattern stepper default) ...)
+             . remaining-state)
+            result-form
+            body)
+     (%LOOP FIX-LITERALS name () (literals ...)
+            (((loop-variable initializer pattern stepper default) ...)
+             . remaining-state)
+            result-form
+            body))
+
+    ((%LOOP FIX-LITERALS name literals () state result-form body)
+     (%LOOP FINISH* name literals state result-form body))
+
+    ((%LOOP FIX-LITERALS name literals (() . literals1) state result-form body)
+     (%LOOP FIX-LITERALS name literals literals1 state result-form body))
+
+    ((%LOOP FIX-LITERALS name literals ((literal0 . literals0) . literals1)
+            state result-form body)
+     (SYNTACTIC-NAME-MEMBER? literal0 literals
+       (%LOOP FIX-LITERALS name literals (literals0 . literals1)
+              state result-form body)
+       (%LOOP FIX-LITERALS name (literal0 . literals) (literals0 . literals1)
+              state result-form body)))
+
+    ((%LOOP FINISH* name literals
+            (((loop-variable initializer pattern stepper default) ...)
              user-bindings
              user-termination-conditions
              outer-bindings
@@ -390,21 +483,17 @@
          (LET-VALUES entry-bindings
            (%LOOP SIMPLIFY-BODY
                   termination-conditions
-                  (LET-VALUES final-bindings
-                    (WITH-EXTENDED-PARAMETER-OPERATORS
-                        ((name
-                          (LOOP-PROCEDURE (loop-variable . loop-stepper)
-                                          ...)))
-                      result-form))
+                  (LET-VALUES final-bindings result-form)
                   body-bindings
                   user-bindings
                   user-termination-conditions
-                  (WITH-EXTENDED-PARAMETER-OPERATORS
-                      ((name
-                        (LOOP-PROCEDURE (loop-variable . loop-stepper)
-                                        ...)))
-                    . body))))
-       (LOOP-PROCEDURE loop-initializer ...)))
+                  (WITH-EXTENDED-PARAMETER-OPERATORS*
+                      ((name literals
+                         (LOOP-PROCEDURE
+                          (loop-variable pattern stepper default)
+                          ...)))
+                      . body))))
+       (LOOP-PROCEDURE initializer ...)))
 
 ;;;;;; Simplifying the Body
 
