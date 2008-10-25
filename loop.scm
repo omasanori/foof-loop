@@ -28,6 +28,24 @@
     ((LOOP name ((loop-clause0 loop-clause1 ...) ...) body ...)
      (%LOOP START name ((loop-clause0 loop-clause1 ...) ...) (body ...)))))
 
+;;; We must be very careful about where to add laziness annotations.
+;;; In particular, we don't want to wrap only the loop's body, because
+;;; if we did that, the outer bindings produced by the iterators would
+;;; be evaluate eagerly, which is too soon.  So instead, we wrap the
+;;; whole thing in a LAZY, and then wrap every call to the loop as
+;;; well.
+
+(define-syntax lazy-loop
+  (syntax-rules (=>)
+    ((LAZY-LOOP name (iterator ...) => result body0 body1 ...)
+     (LAZY (LOOP EAGER-LOOP (iterator ...)
+             => result
+             (LET-SYNTAX ((name
+                           (SYNTAX-RULES ()
+                             ((name . arguments)
+                              (LAZY (EAGER-LOOP . arguments))))))
+               body0 body1 ...))))))
+
 ;;; Use this definition of SYNTACTIC-ERROR if your favourite Scheme
 ;;; doesn't have one already.  Note that this is distinct from a
 ;;; SYNTAX-ERROR procedure, since it must signal a compile-time error.
