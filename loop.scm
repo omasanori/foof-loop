@@ -1,6 +1,6 @@
 ;;; -*- Mode: Scheme -*-
 
-;;;; Extensible Looping Macros, version 4
+;;;; Extensible Looping Macros, version 5
 
 ;;; This code is written by Taylor R. Campbell and placed in the Public
 ;;; Domain.  All warranties are disclaimed.
@@ -15,8 +15,8 @@
 ;;;   values and conditional accumulation;
 ;;; - that the parameters to IN-RANGE are now all named, with an option
 ;;;   of UP-TO or DOWN-TO to specify the direction of the range; and
-;;; - that there are two new iterators, IN-LISTS and IN-STRING-REVERSE.
-;;; Some documentation is in order.
+;;; - that there are three new iterators: IN-LISTS, IN-NUMBERS, and
+;;;   IN-STRINGS-REVERSE.
 ;;;
 ;;; This file depends on sys-param.scm, also by Taylor R. Campbell, and
 ;;; SRFI 11 (LET-VALUES).
@@ -498,16 +498,14 @@
     ((IN-LIST (element-variable pair-variable)
               (list-expression successor-expression)
               next . rest)
-     (next (((LIST) list-expression)              ;Outer bindings
+     (next (((LIST) list-expression)                  ;Outer bindings
             ((SUCCESSOR) successor-expression))
-           ((pair-variable LIST TAIL))            ;Loop variables
-           ()                                     ;Entry bindings
-           ((NOT (PAIR? pair-variable)))          ;Termination conditions
-           (((element-variable)                   ;Body bindings
-             (CAR pair-variable))
-            ((TAIL)
-             (SUCCESSOR pair-variable)))
-           ()                                     ;Final bindings
+           ((pair-variable LIST TAIL))                ;Loop variables
+           ()                                         ;Entry bindings
+           ((NOT (PAIR? pair-variable)))              ;Termination conditions
+           (((element-variable) (CAR pair-variable))  ;Body bindings
+            ((TAIL)             (SUCCESSOR pair-variable)))
+           ()                                         ;Final bindings
            . rest))
 
     ((IN-LIST (element-variable pair-variable) (list-expression) next . rest)
@@ -570,113 +568,107 @@
 
 (define-syntax in-vector
   (syntax-rules ()
-    ((IN-VECTOR user-variables (vector-expression start/end ...) next . rest)
-     (%IN-VECTOR (VECTOR 0 (VECTOR-LENGTH VECTOR))
-                 (VECTOR-REF >= +)
-                 (IN-VECTOR
-                  "Malformed IN-VECTOR clause in LOOP:")
-                 user-variables (vector-expression start/end ...)
-                 user-variables (vector-expression start/end ...)
+    ((IN-VECTOR variables (vector-expression start/end ...) next . rest)
+     (%IN-VECTOR (FORWARD VECTOR-REF VECTOR 0 (VECTOR-LENGTH VECTOR))
+                 variables (vector-expression start/end ...)
+                 (IN-VECTOR variables (vector-expression start/end ...)
+                            "Malformed IN-VECTOR clause in LOOP:")
                  next . rest))))
 
 (define-syntax in-vector-reverse
   (syntax-rules ()
-    ((IN-VECTOR-REVERSE user-variables (vector-expression start/end ...)
+    ((IN-VECTOR-REVERSE variables (vector-expression start/end ...)
                         next . rest)
-     (%IN-VECTOR (VECTOR (- (VECTOR-LENGTH VECTOR) 1) 0)
-                 (VECTOR-REF < -)
+     (%IN-VECTOR (BACKWARD VECTOR-REF VECTOR (- (VECTOR-LENGTH VECTOR) 1) 0)
+                 variables (vector-expression start/end ...)
                  (IN-VECTOR-REVERSE
+                  variables (vector-expression start/end ...)
                   "Malformed IN-VECTOR-REVERSE clause in LOOP:")
-                 user-variables (vector-expression start/end ...)
-                 user-variables (vector-expression start/end ...)
                  next . rest))))
 
 (define-syntax in-string
   (syntax-rules ()
-    ((IN-STRING user-variables (vector-expression start/end ...) next . rest)
-     (%IN-VECTOR (STRING 0 (STRING-LENGTH STRING))
-                 (STRING-REF >= +)
-                 (IN-STRING
-                  "Malformed IN-STRING clause in LOOP:")
-                 user-variables (vector-expression start/end ...)
-                 user-variables (vector-expression start/end ...)
+    ((IN-STRING variables (vector-expression start/end ...) next . rest)
+     (%IN-VECTOR (FORWARD STRING-REF STRING 0 (STRING-LENGTH STRING))
+                 variables (vector-expression start/end ...)
+                 (IN-STRING variables (vector-expression start/end ...)
+                            "Malformed IN-STRING clause in LOOP:")
                  next . rest))))
 
 (define-syntax in-string-reverse
   (syntax-rules ()
-    ((IN-STRING-REVERSE user-variables (string-expression start/end ...)
+    ((IN-STRING-REVERSE variables (string-expression start/end ...)
                         next . rest)
-     (%IN-VECTOR (STRING (- (STRING-LENGTH STRING) 1) 0)
-                 (STRING-REF < -)
+     (%IN-VECTOR (BACKWARD STRING-REF STRING (- (STRING-LENGTH STRING) 1) 0)
+                 variables (string-expression start/end ...)
                  (IN-STRING-REVERSE
+                  variables (string-expression start/end ...)
                   "Malformed IN-STRING-REVERSE clause in LOOP:")
-                 user-variables (string-expression start/end ...)
-                 user-variables (string-expression start/end ...)
                  next . rest))))
 
 ;;;;; Random-Access Sequence Generalization
 
 (define-syntax %in-vector
-  (syntax-rules ()
-    ((%IN-VECTOR (vector-variable default-start default-end)
-                 (vector-ref finished? step)
-                 error-context
+  (syntax-rules (FORWARD BACKWARD)
+    ((%IN-VECTOR (FORWARD vector-ref vector-variable default-start default-end)
                  (element-variable index-variable)
                  (vector-expression start-expression end-expression)
-                 original-variables original-arguments
-                 next . rest)
-     (next (((vector-variable START END)          ;Outer bindings
+                 error-context next . rest)
+     (next (((vector-variable START END);Outer bindings
              (LET ((vector-variable vector-expression))
                (VALUES vector-variable start-expression end-expression))))
-           ((index-variable START                 ;Loop variables
-                            (step index-variable 1)))
-           ()                                     ;Entry bindings
-           ((finished? index-variable END))       ;Termination conditions
-           (((element-variable)                   ;Body bindings
+           ((index-variable START       ;Loop variables
+                            (+ index-variable 1)))
+           ()                           ;Entry bindings
+           ((>= index-variable END))    ;Termination conditions
+           (((element-variable)         ;Body bindings
              (vector-ref vector-variable index-variable)))
-           ()                                     ;Final bindings
+           ()                           ;Final bindings
+           . rest))
+
+    ((%IN-VECTOR (BACKWARD
+                  vector-ref vector-variable default-start default-end)
+                 (element-variable index-variabl)
+                 (vector-expression start-expression end-expression)
+                 error-context next . rest)
+     (next (((vector-variable START END);Outer bindings
+             (LET ((vector-variable vector-expression))
+               (VALUES vector-variable start-expression end-expression))))
+           ((index-variable START       ;Loop variables
+                            index-variable))
+           ()                           ;Entry bindings
+           ((<= index-variable END))    ;Termination conditions
+           (((index-variable)           ;Body bindings
+             (- index-variable 1))
+            ((element-variable)
+             (vector-ref vector-variable (- index-variable 1))))
+           ()                           ;Final bindings
            . rest))
 
     ;; Supply an index variable if absent.
-    ((%IN-VECTOR default-values iteration-parameters error-context
-                 (element-variable)
-                 arguments
-                 original-variables original-arguments
-                 next . rest)
-     (%IN-VECTOR default-values iteration-parameters error-context
-                 (element-variable INDEX)
-                 arguments
-                 original-variables original-arguments
-                 next . rest))
+    ((%IN-VECTOR iteration-parameters (element-variable) arguments
+                 error-context next . rest)
+     (%IN-VECTOR iteration-parameters (element-variable INDEX) arguments
+                 error-context next . rest))
 
     ;; Supply the default start index if necessary.
-    ((%IN-VECTOR (vector-variable default-start default-end)
-                 iteration-parameters error-context user-variables
-                 (vector-expression)
-                 original-variables original-arguments
-                 next . rest)
-     (%IN-VECTOR (vector-variable default-start default-end)
-                 iteration-parameters error-context user-variables
-                 (vector-expression default-start)
-                 original-variables original-arguments
-                 next . rest))
+    ((%IN-VECTOR (direction vector-ref variable default-start default-end)
+                 variables (vector-expression)
+                 error-context next . rest)
+     (%IN-VECTOR (direction vector-ref variable default-start default-end)
+                 variables (vector-expression default-start)
+                 error-context next . rest))
 
     ;; Supply the default end index if necessary.
-    ((%IN-VECTOR (vector-variable default-start default-end)
-                 iteration-parameters error-context user-variables
-                 (vector-expression start-expression)
-                 original-variables original-arguments
-                 next . rest)
-     (%IN-VECTOR (vector-variable default-start default-end)
-                 iteration-parameters error-context user-variables
-                 (vector-expression start-expression default-end)
-                 original-variables original-arguments
-                 next . rest))
+    ((%IN-VECTOR (direction vector-ref variable default-start default-end)
+                 variables (vector-expression start-expression)
+                 error-context next . rest)
+     (%IN-VECTOR (direction vector-ref variable default-start default-end)
+                 variables (vector-expression start-expression default-end)
+                 error-context next . rest))
 
-    ((%IN-VECTOR default-arguments iteration-parameters
-                 (macro error-message)
-                 modified-variables modified-arguments
-                 (variable ...) arguments
+    ((%IN-VECTOR iteration-parameters modified-variables modified-arguments
+                 (macro (variable ...) . arguments)
                  next . rest)
      (SYNTACTIC-ERROR error-message (FOR variable ... (macro . arguments))))))
 
@@ -746,13 +738,15 @@
      (SYNTACTIC-ERROR "Malformed IN-FILE clause in LOOP:"
                       (FOR variable ... (IN-FILE . arguments))))))
 
-;;;; Number Ranges
+;;;; Bounded Number Iteration
 
 ;;; (FOR <number>
 ;;;   (IN-RANGE [(FROM <start>)]
 ;;;             [({UP-TO | DOWN-TO} <end>)]
 ;;;             [(BY <step>)]))
-
+;;;
+;;; The bounds are consistently inclusive-lower and exclusive-upper.
+;;;
 ;;; Because I am too lazy to do this properly, one must supply FROM,
 ;;; UP-TO / DOWN-TO, and BY in that order.  UP-TO or DOWN-TO is
 ;;; required; the others are optional.
@@ -763,17 +757,31 @@
                            (UP-TO end-expression)
                            (BY step-expression))
                next . rest)
-     (%IN-RANGE variable + >=
-                start-expression end-expression step-expression
-                next . rest))
+     (next (((START) start-expression)  ;Outer bindings
+            ((END) end-expression)
+            ((STEP) step-expression))
+           ((variable START             ;Loop variables
+                      (+ variable STEP)))
+           ()                           ;Entry bindings
+           ((>= variable END))          ;Termination conditions
+           ()                           ;Body bindings
+           ()                           ;Final bindings
+           . rest))
 
     ((IN-RANGE (variable) ((FROM start-expression)
                            (DOWN-TO end-expression)
                            (BY step-expression))
                next . rest)
-     (%IN-RANGE variable - <=
-                start-expression end-expression step-expression
-                next . rest))
+     (next (((START) start-expression)  ;Outer bindings
+            ((END) end-expression)
+            ((STEP) step-expression))
+           ((variable START variable))  ;Loop variables
+           ()                           ;Entry bindings
+           ((<= variable END))          ;Termination conditions
+           (((variable)                 ;Body bindings
+             (- variable STEP)))
+           ()                           ;Final bindings
+           . rest))
 
     ;; Supply a default value of 1 for the step if absent.
     ((IN-RANGE (variable) ((FROM start-expression) (to end-expression))
@@ -794,19 +802,49 @@
     ((IN-RANGE (variable ...) arguments next . rest)
      (SYNTACTIC-ERROR "Malformed IN-RANGE clause in LOOP:"
                       (FOR variable ... (IN-RANGE . arguments))))))
+
+;;;; Unbounded Number Iteration
 
-(define-syntax %in-range
-  (syntax-rules ()
-    ((%IN-RANGE variable stepper tester
-                start-expression end-expression step-expression
-                next . rest)
-     (next (((START) start-expression)  ;Outer bindings
-            ((END) end-expression)
+(define-syntax in-numbers
+  (syntax-rules (UP-FROM DOWN-FROM BY)
+    ((IN-NUMBERS (variable) ((UP-FROM lower-expression)
+                             (BY step-expression))
+                 next . rest)
+     (next (((LOWER) lower-expression)        ;Outer bindings
             ((STEP) step-expression))
-           ((variable START             ;Loop bindings
-                      (stepper variable STEP)))
-           ()                           ;Entry bindings
-           ((tester variable end))      ;Termination conditions
-           ()                           ;Body bindings
-           ()                           ;Final bindings
-           . rest))))
+           ((variable LOWER                   ;Loop variables
+                      (+ variable STEP)))
+           ()                                 ;Entry bindings
+           ()                                 ;Termination conditions
+           ()                                 ;Body bindings
+           ()                                 ;Final bindings
+           . rest))
+
+    ((IN-NUMBERS (variable) ((DOWN-FROM upper-expression)
+                             (BY step-expression))
+                 next . rest)
+     (next (((UPPER) upper-expression)        ;Outer bindings
+            ((STEP) step-expression))
+           ((variable UPPER variable))        ;Loop variables
+           (((variable) (- variable STEP)))   ;Entry bindings
+           ()                                 ;Termination conditions
+           ()                                 ;Body bindings
+           ()                                 ;Final bindings
+           . rest))
+
+    ((IN-NUMBERS (variable) ((UP-FROM lower-expression)) next . rest)
+     (IN-NUMBERS (variable) ((UP-FROM lower-expression) (BY 1)) next . rest))
+
+    ((IN-NUMBERS (variable) ((DOWN-FROM lower-expression)) next . rest)
+     (IN-NUMBERS (variable) ((DOWN-FROM lower-expression) (BY 1))
+                 next . rest))
+
+    ((IN-NUMBERS (variable) ((BY step-expression)) next . rest)
+     (IN-NUMBERS (variable) ((UP-FROM 0) (BY step-expression)) next . rest))
+
+    ((IN-NUMBERS (variable) () next . rest)
+     (IN-NUMBERS (variable) ((UP-FROM 0) (BY 1)) next . rest))
+
+    ((IN-NUMBERS (variable ...) arguments next . rest)
+     (SYNTACTIC-ERROR "Malformed IN-NUMBERS clause in LOOP:"
+		      (FOR variable ... (IN-NUMBERS . arguments))))))
