@@ -659,31 +659,40 @@
     ((IN-LIST variables arguments next . rest)
      (LOOP-CLAUSE-ERROR (IN-LIST variables arguments
                                  "Malformed IN-LIST clause in LOOP:")))))
+
+;;;;; Parallel List Iteration
 
 (define-syntax in-lists
   (syntax-rules ()
-    ((IN-LISTS (elements-variable pairs-variable) (lists-expression)
+    ((IN-LISTS (elements-variable pairs-variable)
+               (lists-expression tail-expression)
                next . rest)
      (next (((LISTS) lists-expression))   ;Outer bindings
            ((pairs-variable LISTS CDRS))  ;Loop variables
            (((LOSE? CARS CDRS)            ;Entry bindings
-             (%CARS&CDRS pairs-variable)))
+             (%CARS&CDRS pairs-variable tail-expression '())))
            (LOSE?)                        ;Termination conditions
            (((elements-variable) CARS))   ;Body bindings
            ()                             ;Final bindings
            . rest))
 
+    ((IN-LISTS (elements-variable pairs-variable) (lists) next . rest)
+     (IN-LISTS (elements-variable pairs-variable) (lists '()) next . rest))
+
+    ((IN-LISTS (elements-variable) (lists tail) next . rest)
+     (IN-LISTS (elements-variable PAIRS) (lists tail) next . rest))
+
     ((IN-LISTS (elements-variable) (lists) next . rest)
-     (IN-LISTS (elements-variable PAIRS) (lists) next . rest))
+     (IN-LISTS (elements-variable PAIRS) (lists '()) next . rest))
 
     ((IN-LISTS variables arguments next . rest)
      (LOOP-CLAUSE-ERROR (IN-LISTS variables arguments
                                   "Malformed IN-LISTS clause in LOOP:")))))
 
-(define (%cars&cdrs lists)
+(define (%cars&cdrs lists cars-tail cdrs-tail)
   (loop proceed ((for list (in-list lists))
-                 (for cars (listing (car list)))
-                 (for cdrs (listing (cdr list))))
+                 (for cars (listing (initial cars-tail) (car list)))
+                 (for cdrs (listing (initial cdrs-tail) (cdr list))))
     => (values #f cars cdrs)
     (if (pair? list)
         (proceed)
