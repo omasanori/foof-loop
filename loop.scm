@@ -772,9 +772,9 @@
                     error-context
                     next . rest)
      (LOOP-CLAUSE-ERROR-IF-NOT-NAME result-variable error-context
-       (%%ACCUMULATING arguments (ACCUMULATOR initializer combiner)
+       (%%ACCUMULATING arguments (result-variable initializer combiner)
                        outer-bindings
-                       (((result-variable) (finalizer ACCUMULATOR)))
+                       (((result-variable) (finalizer result-variable)))
                        error-context
                        next . rest)))
 
@@ -810,11 +810,26 @@
 
 (define-syntax %%accumulating
   (syntax-rules (IF =>)
+
+    ((%%ACCUMULATING ()                 ;No default generator at all
+                     (accumulator initializer combiner)
+                     outer-bindings final-bindings error-context next . rest)
+     (%%%ACCUMULATING outer-bindings
+                      (accumulator initializer       ;Loop variable
+                                   (=>)
+                                   ((=> accumulator . items))
+                                   (%RIGHT-REDUCE accumulator combiner . items)
+                                   accumulator)
+                      final-bindings next . rest))
+
     ((%%ACCUMULATING (generator)        ;No conditional
                      (accumulator initializer combiner)
                      outer-bindings final-bindings error-context next . rest)
      (%%%ACCUMULATING outer-bindings
                       (accumulator initializer       ;Loop variable
+                                   (=>)
+                                   ((=> accumulator . items))
+                                   (%RIGHT-REDUCE accumulator combiner . items)
                                    (combiner generator accumulator))
                       final-bindings next . rest))
 
@@ -823,16 +838,22 @@
                      outer-bindings final-bindings error-context next . rest)
      (%%%ACCUMULATING outer-bindings
                       (accumulator initializer       ;Loop variable
+                                   (=>)
+                                   ((=> accumulator . items))
+                                   (%RIGHT-REDUCE accumulator combiner . items)
                                    (IF condition
                                        (combiner generator accumulator)
                                        accumulator))
                       final-bindings next . rest))
-
+
     ((%%ACCUMULATING (generator => mapper)
                      (accumulator initializer combiner)
                      outer-bindings final-bindings error-context next . rest)
      (%%%ACCUMULATING outer-bindings
                       (accumulator initializer       ;Loop variable
+                                   (=>)
+                                   ((=> accumulator . items))
+                                   (%RIGHT-REDUCE accumulator combiner . items)
                                    (COND (generator
                                           => (LAMBDA (DATUM)
                                                (combiner (mapper DATUM)
@@ -845,6 +866,9 @@
                      outer-bindings final-bindings error-context next . rest)
      (%%%ACCUMULATING outer-bindings
                       (accumulator initializer       ;Loop variable
+                                   (=>)
+                                   ((=> accumulator . items))
+                                   (%RIGHT-REDUCE accumulator combiner . items)
                                    (RECEIVE ARGS generator
                                      (IF (APPLY tester ARGS)
                                          (combiner (APPLY mapper ARGS)
@@ -855,6 +879,13 @@
     ((%%ACCUMULATING arguments parameters outer-bindings final-bindings
                      error-context next . rest)
      (LOOP-CLAUSE-ERROR error-context))))
+
+(define-syntax %right-reduce
+  (syntax-rules ()
+    ((%RIGHT-REDUCE final combinator argument)
+     (combinator argument final))
+    ((%RIGHT-REDUCE final combinator argument . arguments)
+     (combinator argument (%RIGHT-REDUCE final combinator . arguments)))))
 
 ;;;; List Iteration
 
