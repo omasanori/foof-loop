@@ -1,23 +1,22 @@
 ;;; -*- Mode: Scheme -*-
 
-;;;; Extensible Looping Macros, version 3
+;;;; Extensible Looping Macros, version 4
 
 ;;; This code is written by Taylor R. Campbell and placed in the Public
 ;;; Domain.  All warranties are disclaimed.
 
 ;;; This is a variation on Alex Shinn's looping macros described in
 ;;; message-id <1157562097.001179.11470@i42g2000cwa.googlegroups.com>.
-;;; There are several differences:
-;;;
-;;;   (FOR variable ... (iterator argument ...))
-;;;     instead of (variable ... <- iterator argument ...).
-;;;   (=> variable update) instead of (variable <- update).
-;;;   (LET variable initializer [stepper])
-;;;     instead of (variable initializer [stepper]).
-;;;   COLLECTING has support for conditional collection; see its page.
-;;;   IN-LIST has an optional successor argument; CDR is the default.
-;;;   IN-STRING-REVERSE is added to the set of vector-like iterators.
-;;;   IN-RANGE's arguments are named, and extended; see its page.
+;;; There are a number of differences; among the most notable are
+;;; - that the syntax for passing named arguments to the loop
+;;;   dispatcher is `(=> name value)' rather than `name <- value';
+;;; - that COLLECTING has been renamed LISTING, and there are many
+;;;   other new accumulator macros as well, with extensions for initial
+;;;   values and conditional accumulation;
+;;; - that the parameters to IN-RANGE are now all named, with an option
+;;;   of UP-TO or DOWN-TO to specify the direction of the range; and
+;;; - that there are two new iterators, IN-LISTS and IN-STRING-REVERSE.
+;;; Some documentation is in order.
 ;;;
 ;;; This file depends on sys-param.scm, also by Taylor R. Campbell, and
 ;;; SRFI 11 (LET-VALUES).
@@ -35,10 +34,11 @@
     ((LOOP name ((loop-clause0 loop-clause1 ...) ...) body ...)
      (%LOOP START name ((loop-clause0 loop-clause1 ...) ...) (body ...)))))
 
-;;; Use this definition of SYNTAX-ERROR if your favourite Scheme
-;;; doesn't have one already.
-
-;; (define-syntax syntax-error (syntax-rules ()))
+;;; Use this definition of SYNTACTIC-ERROR if your favourite Scheme
+;;; doesn't have one already.  Note that this is distinct from a
+;;; SYNTAX-ERROR procedure, since it must signal a compile-time error.
+;;;
+;;;   (define-syntax syntactic-error (syntax-rules ()))
 
 (define-syntax %loop
   (syntax-rules (=> FOR LET START GO PARSE-FOR CONTINUE FINISH)
@@ -89,7 +89,7 @@
     ((%LOOP PARSE-FOR (non-list)
             variables
             original-clause name state loop-clauses body)
-     (SYNTAX-ERROR "Malformed FOR clause in LOOP:" 'original-clause))
+     (SYNTACTIC-ERROR "Malformed FOR clause in LOOP:" original-clause))
 
     ((%LOOP ((outer-bvl outer-producer) ...)
             ((loop-variable loop-initializer loop-stepper) ...)
@@ -143,7 +143,7 @@
             body))
 
     ((%LOOP GO name state (clause . loop-clauses) body)
-     (SYNTAX-ERROR "Malformed LOOP clause:" 'clause))
+     (SYNTACTIC-ERROR "Malformed LOOP clause:" clause))
 
     ((%LOOP GO name state () (=> result-form . body))
      (%LOOP FINISH name state result-form body))
@@ -179,6 +179,21 @@
        (LOOP-PROCEDURE loop-initializer ...)))))
 
 ;;;; Accumulators
+
+;;; Accumulators have the following syntax:
+;;;
+;;;   (FOR <result> (ACCUMULATING <generator>))
+;;;   (FOR <result> (ACCUMULATING <generator> (IF <condition>)))
+;;;   (FOR <result> (ACCUMULATING <generator> => <mapper>))    ;COND-style
+;;;   (FOR <result> (ACCUMULATING <generator> <tester>         ;SRFI-61-style
+;;;                               => <mapper>))
+;;;
+;;; In addition, some of them support initial values, which are
+;;; specified with an optional first argument of (INITIAL <initial
+;;; value>).  For example, to accumulate a list starting with some tail
+;;; <tail>, write
+;;;
+;;;   (FOR <result-list> (LISTING (INITIAL <tail>) <element>)).
 
 (define-syntax listing
   (syntax-rules (INITIAL)
@@ -216,33 +231,51 @@
                      variables arguments
                      "Malformed LISTING-REVERSE clause in LOOP:")
                     next . rest))))
-
+
 ;;; This is non-reentrant but produces precisely one garbage cons cell.
 
 (define-syntax listing!
   (syntax-rules ()
-    ((LISTING! variables ((INITIAL tail-expression) . arguments) next . rest)
-     (%ACCUMULATING variables arguments
-                    (((FIRST TAIL) (LET ((TAIL tail-expression))
-                                     (VALUES (CONS #F TAIL) TAIL))))
-                    (FIRST (LAMBDA (DATUM CELL)
-                             (LET ((CELL* (CONS DATUM TAIL)))
-                               (SET-CDR! CELL CELL*)
-                               CELL*))
-                           (LAMBDA (CELL) CELL (CDR FIRST)))
-                    (LISTING! variables ((INITIAL tail-expression) . arguments)
-                              "Malformed LISTING! clause in LOOP:")
-                    next . rest))
     ((LISTING! variables arguments next . rest)
-     (%ACCUMULATING variables arguments (((FIRST) (CONS #F '())))
-                    (FIRST (LAMBDA (DATUM CELL)
-                             (LET ((CELL* (CONS DATUM '())))
-                               (SET-CDR! CELL CELL*)
-                               CELL*))
+     (%LISTING! variables arguments (CONS #F '())
+                (LISTING! variables arguments
+                          "Malformed LISTING clause in LOOP:")
+                next . rest))))
+
+(define-syntax listing-into!
+  (syntax-rules ()
+    ((LISTING-INTO! variables (first-expression . arguments) next . rest)
+     (%LISTING! variables arguments first-expression
+                (LISTING-INTO! variables
+                               (first-expression . arguments)
+                               "Malformed LISTING-INTO! clause in LOOP:")
+                next . rest))))
+
+(define-syntax %listing!
+  (syntax-rules (INITIAL)
+    ((%LISTING! variables ((INITIAL tail-expression) . arguments)
+                first-expression
+                error-context
+                next . rest)
+     (%ACCUMULATING variables arguments
+                    (((FIRST TAIL)
+                      (LET ((FIRST first-expression)
+                            (TAIL tail-expression))
+                        (SET-CDR! FIRST TAIL)
+                        (VALUES FIRST TAIL))))
+                    (FIRST (LAMBDA (DATUM PREVIOUS-CELL)
+                             (LET ((NEXT-CELL (CONS DATUM TAIL)))
+                               (SET-CDR! PREVIOUS-CELL NEXT-CELL)
+                               NEXT-CELL))
                            (LAMBDA (CELL) CELL (CDR FIRST)))
-                    (LISTING! variables arguments
-                              "Malformed LISTING! clause in LOOP:")
-                    next . rest))))
+                    error-context
+                    next . rest))
+
+    ((%LISTING! variables arguments first-expression error-context next . rest)
+     (%LISTING! variables ((INITIAL '()) . arguments)
+                first-expression
+                error-context
+                next . rest))))
 
 ;;;;; List Appending Accumulators
 
@@ -327,9 +360,9 @@
 
 (define-syntax minimizing
   (syntax-rules ()
-    ((MAXIMIZING variables arguments next . rest)
-     (%EXTREMIZING variables arguments MAX
-                   (MAXIMIZING "Malformed MAXIMIZING clause in LOOP:")
+    ((MINIMIZING variables arguments next . rest)
+     (%EXTREMIZING variables arguments MIN
+                   (MINIMIZING "Malformed MINIMIZING clause in LOOP:")
                    next . rest))))
 
 (define-syntax %extremizing
@@ -340,7 +373,7 @@
                    next . rest)
      (%ACCUMULATING variables arguments (((INIT) init-expression))
                     (INIT chooser)
-                    (macro variables ((INIT init-expression) . arguments)
+                    (macro variables ((INITIAL init-expression) . arguments)
                            message)
                     next . rest))
 
@@ -355,6 +388,10 @@
 
 (define-syntax %accumulating
   (syntax-rules ()
+
+    ;; There is a finalization step, so the result variable cannot be
+    ;; the accumulator variable, and we must apply the finalizer at the
+    ;; end.
     ((%ACCUMULATING (result-variable) arguments outer-bindings
                     (initializer combiner finalizer)
                     error-context
@@ -365,6 +402,9 @@
                      error-context
                      next . rest))
 
+    ;; There is no finalizer step, so the accumulation is incremental,
+    ;; and can be exploited; therefore, the result variable and the
+    ;; accumulator variable are one and the same.
     ((%ACCUMULATING (accumulator-variable) arguments outer-bindings
                     (initializer combiner)
                     error-context
@@ -375,11 +415,12 @@
                      error-context
                      next . rest))
 
+    ;; The user supplied more than one variable.  Lose lose.
     ((%ACCUMULATING variables arguments outer-bindings parameters
                     (macro (variable ...) original-arguments message)
                     next . rest)
-     (SYNTAX-ERROR message
-                   '(FOR variable ... (macro . original-arguments))))))
+     (SYNTACTIC-ERROR message
+                      (FOR variable ... (macro . original-arguments))))))
 
 (define-syntax %%%accumulating
   (syntax-rules ()
@@ -394,11 +435,11 @@
 
 (define-syntax %%accumulating
   (syntax-rules (IF =>)
-    ((%%ACCUMULATING (generator)
+    ((%%ACCUMULATING (generator)        ;No conditional
                      (accumulator initializer combiner)
                      outer-bindings final-bindings error-context next . rest)
      (%%%ACCUMULATING outer-bindings
-                      (accumulator initializer
+                      (accumulator initializer       ;Loop variable
                                    (combiner generator accumulator))
                       final-bindings next . rest))
 
@@ -406,7 +447,7 @@
                      (accumulator initializer combiner)
                      outer-bindings final-bindings error-context next . rest)
      (%%%ACCUMULATING outer-bindings
-                      (accumulator initializer
+                      (accumulator initializer       ;Loop variable
                                    (IF condition
                                        (combiner generator accumulator)
                                        accumulator))
@@ -416,7 +457,7 @@
                      (accumulator initializer combiner)
                      outer-bindings final-bindings error-context next . rest)
      (%%%ACCUMULATING (((MAP) mapper) . outer-bindings)
-                      (accumulator initializer
+                      (accumulator initializer       ;Loop variable
                                    (COND (generator
                                           => (LAMBDA (DATUM)
                                                (combiner (MAP DATUM)
@@ -430,7 +471,7 @@
      (%%%ACCUMULATING (((TEST) tester)
                        ((MAP) mapper)
                        . outer-bindings)
-                      (accumulator initializer
+                      (accumulator initializer       ;Loop variable
                                    (RECEIVE ARGS generator
                                      (IF (APPLY TEST ARGS)
                                          (combiner (APPLY MAP ARGS)
@@ -441,8 +482,8 @@
     ((%%ACCUMULATING arguments parameters outer-bindings final-bindings
                      (macro (variable ...) original-arguments message)
                      next . rest)
-     (SYNTAX-ERROR message
-                   '(FOR variable ... (macro . original-arguments))))))
+     (SYNTACTIC-ERROR message
+                      (FOR variable ... (macro . original-arguments))))))
 
 ;;;; List Iteration
 
@@ -454,15 +495,18 @@
 
 (define-syntax in-list
   (syntax-rules ()
-    ((IN-LIST (element-variable pair-variable) (list-expression successor)
+    ((IN-LIST (element-variable pair-variable)
+              (list-expression successor-expression)
               next . rest)
-     (next (((LIST) list-expression))             ;Outer bindings
-           ((pair-variable LIST                   ;Loop variables
-                           (successor pair-variable)))
+     (next (((LIST) list-expression)              ;Outer bindings
+            ((SUCCESSOR) successor-expression))
+           ((pair-variable LIST TAIL))            ;Loop variables
            ()                                     ;Entry bindings
            ((NOT (PAIR? pair-variable)))          ;Termination conditions
            (((element-variable)                   ;Body bindings
-             (CAR pair-variable)))
+             (CAR pair-variable))
+            ((TAIL)
+             (SUCCESSOR pair-variable)))
            ()                                     ;Final bindings
            . rest))
 
@@ -477,8 +521,8 @@
      (IN-LIST (element-variable PAIR) (list-expression CDR) next . rest))
 
     ((IN-LIST (variable ...) arguments next . rest)
-     (SYNTAX-ERROR "Malformed IN-LIST clause in LOOP:"
-                   '(FOR variable ... (IN-LIST . arguments))))))
+     (SYNTACTIC-ERROR "Malformed IN-LIST clause in LOOP:"
+                      (FOR variable ... (IN-LIST . arguments))))))
 
 (define-syntax in-lists
   (syntax-rules ()
@@ -497,8 +541,8 @@
      (IN-LISTS (elements-variable PAIRS) (lists) next . rest))
 
     ((IN-LISTS (variable ...) arguments next . rest)
-     (SYNTAX-ERROR "Malformed IN-LISTS clause in LOOP:"
-                   '(FOR variable ... (IN-LIST . arguments))))))
+     (SYNTACTIC-ERROR "Malformed IN-LISTS clause in LOOP:"
+                      (FOR variable ... (IN-LIST . arguments))))))
 
 (define (%cars&cdrs lists)
   (loop proceed ((for list (in-list lists))
@@ -634,7 +678,7 @@
                  modified-variables modified-arguments
                  (variable ...) arguments
                  next . rest)
-     (SYNTAX-ERROR error-message '(FOR variable ... (macro . arguments))))))
+     (SYNTACTIC-ERROR error-message (FOR variable ... (macro . arguments))))))
 
 ;;;; Input
 
@@ -668,8 +712,8 @@
               next . rest))
 
     ((IN-PORT (variable ...) arguments next . rest)
-     (SYNTAX-ERROR "Malformed IN-PORT clause in LOOP:"
-                   '(FOR variable ... (IN-FILE . arguments))))))
+     (SYNTACTIC-ERROR "Malformed IN-PORT clause in LOOP:"
+                      (FOR variable ... (IN-FILE . arguments))))))
 
 (define-syntax in-file
   (syntax-rules ()
@@ -699,8 +743,8 @@
               next . rest))
 
     ((IN-FILE (variable ...) arguments next . rest)
-     (SYNTAX-ERROR "Malformed IN-FILE clause in LOOP:"
-                   '(FOR variable ... (IN-FILE . arguments))))))
+     (SYNTACTIC-ERROR "Malformed IN-FILE clause in LOOP:"
+                      (FOR variable ... (IN-FILE . arguments))))))
 
 ;;;; Number Ranges
 
@@ -748,8 +792,8 @@
      (IN-RANGE (variable) ((FROM 0) (to end-expression) (BY 1)) next . rest))
 
     ((IN-RANGE (variable ...) arguments next . rest)
-     (SYNTAX-ERROR "Malformed IN-RANGE clause in LOOP:"
-                   '(FOR variable ... (IN-RANGE . arguments))))))
+     (SYNTACTIC-ERROR "Malformed IN-RANGE clause in LOOP:"
+                      (FOR variable ... (IN-RANGE . arguments))))))
 
 (define-syntax %in-range
   (syntax-rules ()
