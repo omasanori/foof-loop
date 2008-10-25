@@ -1,6 +1,6 @@
 ;;; -*- Mode: Scheme -*-
 
-;;;; Extensible Looping Macros, version 2
+;;;; Extensible Looping Macros, version 3
 
 ;;; This code is written by Taylor R. Campbell and placed in the Public
 ;;; Domain.  All warranties are disclaimed.
@@ -70,26 +70,26 @@
             body)
      (%LOOP PARSE-FOR (variable0 variable1 variable2 ...)
             ()
+            (FOR variable0 variable1 variable2 ...)   ;Copy for error message.
             name state loop-clauses body))
 
     ((%LOOP PARSE-FOR ((looper argument ...))
             variables
-            name state loop-clauses body)
+            original-clause name state loop-clauses body)
      (looper variables (argument ...)
              %LOOP CONTINUE name state loop-clauses body))
 
     ((%LOOP PARSE-FOR (next-variable more0 more1 ...)
             (variable ...)
-            name state loop-clauses body)
+            original-clause name state loop-clauses body)
      (%LOOP PARSE-FOR (more0 more1 ...)
             (variable ... next-variable)
-            name state loop-clauses body))
+            original-clause name state loop-clauses body))
 
     ((%LOOP PARSE-FOR (non-list)
             variables
-            clause
-            name state loop-clauses body)
-     (SYNTAX-ERROR "Malformed FOR clause in LOOP:" 'clause))
+            original-clause name state loop-clauses body)
+     (SYNTAX-ERROR "Malformed FOR clause in LOOP:" 'original-clause))
 
     ((%LOOP ((outer-bvl outer-producer) ...)
             ((loop-variable loop-initializer loop-stepper) ...)
@@ -100,7 +100,7 @@
             CONTINUE
             name
             (outer-bindings
-             loop-variables
+             (loop-variables ...)
              entry-bindings
              termination-conditions
              body-bindings
@@ -109,8 +109,10 @@
             body)
      (%LOOP GO name
             (((outer-bvl outer-producer) ... . outer-bindings)
-             ((loop-variable loop-initializer loop-stepper) ...
-              . loop-variables)
+             ;; Preserve the order of loop variables, so that the user
+             ;; can put hers first and still use positional arguments.
+             (loop-variables ...
+                             (loop-variable loop-initializer loop-stepper) ...)
              ((entry-bvl entry-producer) ... . entry-bindings)
              (termination-condition ... . termination-conditions)
              ((body-bvl body-producer) ... . body-bindings)
@@ -118,6 +120,9 @@
             loop-clauses
             body))
 
+    ((%LOOP GO name state ((variable initializer) . loop-clauses) body)
+     (%LOOP GO name state ((LET variable initializer) . loop-clauses) body))
+
     ((%LOOP GO name state
             ((LET variable initializer) . loop-clauses)
             body)
@@ -173,71 +178,271 @@
                    . body)))))
        (LOOP-PROCEDURE loop-initializer ...)))))
 
-;;;; Collectors
+;;;; Accumulators
 
-;;; (FOR <list> (COLLECTING <generator>))
-;;; (FOR <list> (COLLECTING <generator> (IF <condition>)))
-;;; (FOR <list> (COLLECTING <generator> => <mapper>))           ;COND-style
-;;; (FOR <list> (COLLECTING <generator> <tester> => <mapper))   ;SRFI-61-style
+(define-syntax listing
+  (syntax-rules (INITIAL)
+    ((LISTING variables ((INITIAL tail-expression) . arguments) next . rest)
+     (%ACCUMULATING variables arguments (((TAIL) tail-expression))
+                    ('() CONS (LAMBDA (RESULT)
+                                (APPEND-REVERSE RESULT TAIL)))
+                    (LISTING variables
+                             ((INITIAL tail-expression) . arguments)
+                             "Malformed LISTING clause in LOOP:")
+                    next . rest))
 
-(define-syntax collecting
+    ((LISTING variables arguments next . rest)
+     (%ACCUMULATING variables arguments ()
+                    ('() CONS REVERSE)
+                    (LISTING variables arguments
+                             "Malformed LISTING clause in LOOP:")
+                    next . rest))))
+
+(define-syntax listing-reverse
+  (syntax-rules (INITIAL)
+    ((LISTING-REVERSE variables ((INITIAL tail-expression) . arguments)
+                      next . rest)
+     (%ACCUMULATING variables arguments (((TAIL) tail-expression))
+                    (TAIL CONS)
+                    (LISTING-REVERSE
+                     variables ((INITIAL tail-expression) . arguments)
+                     "Malformed LISTING-REVERSE clause in LOOP:")
+                    next . rest))
+
+    ((LISTING-REVERSE variables arguments next . rest)
+     (%ACCUMULATING variables arguments ()
+                    ('() CONS)
+                    (LISTING-REVERSE
+                     variables arguments
+                     "Malformed LISTING-REVERSE clause in LOOP:")
+                    next . rest))))
+
+;;; This is non-reentrant but produces precisely one garbage cons cell.
+
+(define-syntax listing!
+  (syntax-rules ()
+    ((LISTING! variables ((INITIAL tail-expression) . arguments) next . rest)
+     (%ACCUMULATING variables arguments
+                    (((FIRST TAIL) (LET ((TAIL tail-expression))
+                                     (VALUES (CONS #F TAIL) TAIL))))
+                    (FIRST (LAMBDA (DATUM CELL)
+                             (LET ((CELL* (CONS DATUM TAIL)))
+                               (SET-CDR! CELL CELL*)
+                               CELL*))
+                           (LAMBDA (CELL) CELL (CDR FIRST)))
+                    (LISTING! variables ((INITIAL tail-expression) . arguments)
+                              "Malformed LISTING! clause in LOOP:")
+                    next . rest))
+    ((LISTING! variables arguments next . rest)
+     (%ACCUMULATING variables arguments (((FIRST) (CONS #F '())))
+                    (FIRST (LAMBDA (DATUM CELL)
+                             (LET ((CELL* (CONS DATUM '())))
+                               (SET-CDR! CELL CELL*)
+                               CELL*))
+                           (LAMBDA (CELL) CELL (CDR FIRST)))
+                    (LISTING! variables arguments
+                              "Malformed LISTING! clause in LOOP:")
+                    next . rest))))
+
+;;;;; List Appending Accumulators
+
+(define-syntax appending
+  (syntax-rules (INITIAL)
+    ((APPENDING variables ((INITIAL tail-expression) . arguments)
+                next . rest)
+     (%ACCUMULATING variables arguments (((TAIL) tail-expression))
+                    ('() APPEND-REVERSE (LAMBDA (RESULT)
+                                          (APPEND-REVERSE RESULT TAIL)))
+                    (APPENDING variables
+                               ((INITIAL tail-expression) . arguments)
+                               "Malformed APPENDING clause in LOOP:")
+                    next . rest))
+
+    ((APPENDING variables arguments next . rest)
+     (%ACCUMULATING variables arguments ()
+                    ('() APPEND-REVERSE REVERSE)
+                    (APPENDING variables arguments
+                               "Malformed APPENDING clause in LOOP:")
+                    next . rest))))
+
+(define-syntax appending-reverse
+  (syntax-rules (INITIAL)
+    ((APPENDING-REVERSE variables ((INITIAL tail-expression) . arguments)
+                        next . rest)
+     (%ACCUMULATING variables arguments (((TAIL) tail-expression))
+                    (TAIL APPEND-REVERSE)
+                    (APPENDING-REVERSE
+                     variables ((INITIAL tail-expression) . arguments)
+                     "Malformed APPENDING-REVERSE clause in LOOP:")
+                    next . rest))
+
+    ((APPENDING-REVERSE variables arguments next . rest)
+     (%ACCUMULATING variables arguments ()
+                    ('() APPEND-REVERSE)
+                    (APPENDING-REVERSE
+                     variables arguments
+                     "Malformed APPENDING-REVERSE clause in LOOP:")
+                    next . rest))))
+
+;; (define (append-reverse list tail)
+;;   (loop ((FOR elt (IN-LIST list))
+;;          (FOR result (LISTING-REVERSE (INITIAL tail) elt)))
+;;     => result))
+
+(define (append-reverse list tail)
+  (if (pair? list)
+      (append-reverse (cdr list) (cons (car list) tail))
+      tail))
+
+;;;;; Numerical Accumulators
+
+;;; MULTIPLYING and SUMMING have no INITIAL parameter because you can
+;;; just tack it on after the fact, which is not the case of most other
+;;; accumulators.
+
+(define-syntax summing
+  (syntax-rules ()
+    ((SUMMING variables arguments next . rest)
+     (%ACCUMULATING variables arguments ()
+                    (0 +)
+                    (SUMMING variables arguments
+                             "Malformed SUMMING clause in LOOP:")
+                    next . rest))))
+
+(define-syntax multiplying
+  (syntax-rules ()
+    ((MULTIPLYING variables arguments next . rest)
+     (%ACCUMULATING variables arguments ()
+                    (1 *)
+                    (MULTIPLYING variables arguments
+                                 "Malformed MULTIPLYING clause in LOOP:")
+                    next . rest))))
+
+(define-syntax maximizing
+  (syntax-rules ()
+    ((MAXIMIZING variables arguments next . rest)
+     (%EXTREMIZING variables arguments MAX
+                   (MAXIMIZING "Malformed MAXIMIZING clause in LOOP:")
+                   next . rest))))
+
+(define-syntax minimizing
+  (syntax-rules ()
+    ((MAXIMIZING variables arguments next . rest)
+     (%EXTREMIZING variables arguments MAX
+                   (MAXIMIZING "Malformed MAXIMIZING clause in LOOP:")
+                   next . rest))))
+
+(define-syntax %extremizing
+  (syntax-rules (INITIAL)
+    ((%EXTREMIZING variables ((INITIAL init-expression) . arguments)
+                   chooser
+                   (macro message)
+                   next . rest)
+     (%ACCUMULATING variables arguments (((INIT) init-expression))
+                    (INIT chooser)
+                    (macro variables ((INIT init-expression) . arguments)
+                           message)
+                    next . rest))
+
+    ((%EXTREMIZING variables arguments chooser (macro message) next . rest)
+     (%ACCUMULATING variables arguments ()
+                    (#F (LAMBDA (DATUM EXTREME)
+                          (IF (AND DATUM EXTREME)
+                              (chooser DATUM EXTREME)
+                              (OR DATUM EXTREME))))
+                    (macro variables arguments message)
+                    next . rest))))
+
+(define-syntax %accumulating
+  (syntax-rules ()
+    ((%ACCUMULATING (result-variable) arguments outer-bindings
+                    (initializer combiner finalizer)
+                    error-context
+                    next . rest)
+     (%%ACCUMULATING arguments (ACCUMULATOR initializer combiner)
+                     outer-bindings
+                     (((result-variable) (finalizer ACCUMULATOR)))
+                     error-context
+                     next . rest))
+
+    ((%ACCUMULATING (accumulator-variable) arguments outer-bindings
+                    (initializer combiner)
+                    error-context
+                    next . rest)
+     (%%ACCUMULATING arguments (accumulator-variable initializer combiner)
+                     outer-bindings
+                     ()
+                     error-context
+                     next . rest))
+
+    ((%ACCUMULATING variables arguments outer-bindings parameters
+                    (macro (variable ...) original-arguments message)
+                    next . rest)
+     (SYNTAX-ERROR message
+                   '(FOR variable ... (macro . original-arguments))))))
+
+(define-syntax %%%accumulating
+  (syntax-rules ()
+    ((%%%ACCUMULATING outer-bindings loop-variable final-bindings next . rest)
+     (next outer-bindings
+           (loop-variable)
+           ()                           ;Entry bindings
+           ()                           ;Termination conditions
+           ()                           ;Body bindings
+           final-bindings
+           . rest))))
+
+(define-syntax %%accumulating
   (syntax-rules (IF =>)
-    ((COLLECTING (list-variable) (generator) next . rest)
-     (next ()                           ;Outer bindings
-           ((ACCUMULATOR '()            ;Loop variables
-                         (CONS generator ACCUMULATOR)))
-           ()                           ;Entry bindings
-           ()                           ;Termination conditions
-           ()                           ;Body bindings
-           (((list-variable)            ;Final bindings
-             (REVERSE ACCUMULATOR)))
-           . rest))
+    ((%%ACCUMULATING (generator)
+                     (accumulator initializer combiner)
+                     outer-bindings final-bindings error-context next . rest)
+     (%%%ACCUMULATING outer-bindings
+                      (accumulator initializer
+                                   (combiner generator accumulator))
+                      final-bindings next . rest))
 
-    ((COLLECTING (list-variable) (generator (IF condition)) next . rest)
-     (next ()                           ;Outer bindings
-           ((ACCUMULATOR '()            ;Loop variables
-                         (IF condition
-                             (CONS generator ACCUMULATOR)
-                             ACCUMULATOR)))
-           ()                           ;Entry bindings
-           ()                           ;Termination conditions
-           ()                           ;Body bindings
-           (((list-variable)            ;Final bindings
-             (REVERSE ACCUMULATOR)))
-           . rest))
+    ((%%ACCUMULATING (generator (IF condition))
+                     (accumulator initializer combiner)
+                     outer-bindings final-bindings error-context next . rest)
+     (%%%ACCUMULATING outer-bindings
+                      (accumulator initializer
+                                   (IF condition
+                                       (combiner generator accumulator)
+                                       accumulator))
+                      final-bindings next . rest))
 
-    ((COLLECTING (list-variable) (generator => mapper) next . rest)
-     (next (((MAP) mapper))             ;Outer bindings
-           ((ACCUMULATOR '()            ;Loop variables
-                         (COND (generator
-                                => (LAMBDA (DATUM)
-                                     (CONS (MAP DATUM) ACCUMULATOR)))
-                               (ELSE ACCUMULATOR))))
-           ()                           ;Entry bindings
-           ()                           ;Termination conditions
-           ()                           ;Body bindings
-           (((list-variable)            ;Final bindings
-             (REVERSE ACCUMULATOR)))
-           . rest))
+    ((%%ACCUMULATING (generator => mapper)
+                     (accumulator initializer combiner)
+                     outer-bindings final-bindings error-context next . rest)
+     (%%%ACCUMULATING (((MAP) mapper) . outer-bindings)
+                      (accumulator initializer
+                                   (COND (generator
+                                          => (LAMBDA (DATUM)
+                                               (combiner (MAP DATUM)
+                                                         accumulator)))
+                                         (ELSE accumulator)))
+                      final-bindings next . rest))
 
-    ((COLLECTING (list-variable) (generator tester => mapper) next . rest)
-     (next (((TEST) tester)             ;Outer bindings
-            ((MAP) mapper))
-           ((ACCUMULATOR '()            ;Loop variables
-                         (RECEIVE ARGS generator
-                           (IF (APPLY TEST ARGS)
-                               (CONS (APPLY MAP ARGS) ACCUMULATOR)
-                               ACCUMULATOR))))
-           ()                           ;Entry bindings
-           ()                           ;Termination conditions
-           ()                           ;Body bindings
-           (((list-variable)            ;Final bindings
-             (REVERSE accumulator)))
-           . rest))
+    ((%%ACCUMULATING (generator tester => mapper)
+                     (accumulator initializer combiner)
+                     outer-bindings final-bindings error-context next . rest)
+     (%%%ACCUMULATING (((TEST) tester)
+                       ((MAP) mapper)
+                       . outer-bindings)
+                      (accumulator initializer
+                                   (RECEIVE ARGS generator
+                                     (IF (APPLY TEST ARGS)
+                                         (combiner (APPLY MAP ARGS)
+                                                   accumulator)
+                                         accumulator)))
+                      final-bindings next . rest))
 
-    ((COLLECTING (variable ...) arguments next . rest)
-     (SYNTAX-ERROR "Malformed COLLECTING clause in LOOP:"
-                   '(FOR variable ... (COLLECTING . arguments))))))
+    ((%%ACCUMULATING arguments parameters outer-bindings final-bindings
+                     (macro (variable ...) original-arguments message)
+                     next . rest)
+     (SYNTAX-ERROR message
+                   '(FOR variable ... (macro . original-arguments))))))
 
 ;;;; List Iteration
 
@@ -297,8 +502,8 @@
 
 (define (%cars&cdrs lists)
   (loop proceed ((for list (in-list lists))
-                 (for cars (collecting (car list)))
-                 (for cdrs (collecting (cdr list))))
+                 (for cars (listing (car list)))
+                 (for cdrs (listing (cdr list))))
     => (values #f cars cdrs)
     (if (pair? list)
         (proceed)
