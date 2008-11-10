@@ -557,7 +557,8 @@ the body, until the termination condition of any loop clause is true.
 Then if the <final-expression> is supplied, it is evaluated in an
 environment with the final values of all the loop variables bound, as
 well as any final bindings supplied by the iterators; if there is no
-<final-expression>, the value of the LOOP form is unspecified.
+<final-expression>, the value of the invocation of the loop is
+unspecified.
 
 If <loop-name> is not supplied, the loop continues at the end of the
 loop body, which may be empty.  If <loop-name> is supplied, it is bound
