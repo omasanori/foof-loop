@@ -1087,7 +1087,7 @@ at most, support for iterators to supply declarations in the loop.
   Iteration terminates when the datum read satisfies the predicate
   <eof?>.
 
-  <Input-port> must be an input port.  <Reader> and <eof?>, if
+  <Input-port> is usually an input port.  <Reader> and <eof?>, if
   supplied, must be unary procedures.  The default value of <reader> is
   READ-CHAR, and the default value of <eof?> is EOF-OBJECT?.
   <Input-port>, <reader>, and <eof?> are all evaluated once before the
