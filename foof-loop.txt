@@ -1675,11 +1675,12 @@ descends to the lower bound, or whether one starts from the lower bound
 and ascends to the upper bound.
 
 Inconsistent bounds make programs confusing.  Strict adherence to the
-ninclusive-lower/exclusive-upper convention is the only sensible option.
+inclusive-lower/exclusive-upper convention is the only sensible option.
 Between the R5RS, foof-loop, and many libraries that already adhere to
 it, this convention may not eliminate all off-by-one errors, but it
-makes programs much easier to write correctly from the start.  Backward
-iteration is an especally sordid source of off-by-one errors.
+makes programs much easier to write correctly from the start.  Reverse
+iteration, from more positive to more negative numbers, is an especally
+sordid source of off-by-one errors.
 
 If you write any of your own custom iterators that involve upper or
 lower bounds, please adhere to these rules.  If you have an extremely
