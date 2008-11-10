@@ -126,11 +126,13 @@ An astute reader might wonder why we need `=>' before the final
 expression whose value the loop will return; another astute reader
 might wonder how LOOP can be as general as DO or named LET without any
 program body inside the loop.  Both will be relieved to learn that the
-LOOP form has a program body, from which `=>' distinguishes the final
-expression.  Not only can we write a program body as in DO, but we can
-even give a name to the loop and specify where in the body to continue
-to the next iteration.  For example, to find a matching item, rather
-than to count all of them, we can write:
+LOOP form has a program body; the `=>' sets the final expression apart
+from the body.  Not only can we write a program body as in DO, but we
+can even give a name to the loop and specify where in the body to
+continue to the next iteration; then the loop does not implicitly
+continue after the body, which is evaluated in a tail position.  For
+example, to find a matching item, rather than to count all of them, we
+can write:
 
   (define (find-matching-item list if-absent predicate)
     (loop continue ((for item (in-list list)))
