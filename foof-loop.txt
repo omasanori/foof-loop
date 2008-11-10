@@ -213,6 +213,8 @@ do not, we can update one of the two lists:
           (continue (=> satisfied (cons element satisfied)))
           (continue (=> unsatisfied (cons element unsatisfied))))))
 
+Note well that the arrow `=>' has two different meanings in this code.
+
 *** Iterator-Supplied Loop Variables
 
 Sometimes it is not enough just to step through each element of a list
