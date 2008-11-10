@@ -170,13 +170,13 @@ each element of a list LIST followed by a newline:
 
 *** Updating Loop Variables
 
-A third sort of astute reader may wonder still how LOOP can be as
-expressive as named LET, with which one can update the loop variables
-(which we introduced in LOOP using WITH clauses) when explicitly
-continuing the.  One can do this with LOOP by passing arguments when
-continuing the loop; LOOP is a drop-in replacement for named LET, if we
-use the loop procedure only in operator positions, for it is not a
-procedure but a macro, whose reason will become clear shortly.  This
+A third astute reader -- not necessarily distinct from the first two --
+may wonder still how LOOP can be as expressive as named LET, with which
+one can update the loop variables (which we introduced in LOOP using
+WITH clauses) when explicitly continuing the.  One can do this with
+LOOP by passing arguments when continuing the loop; LOOP is a drop-in
+replacement for named LET, if we use the loop's name only in operator
+positions, the reason for which will become clear shortly.  This
 definition of REVERSE-MAP is unchanged by substituting LOOP for LET:
 
   (define (reverse-map procedure list)
@@ -195,12 +195,13 @@ not assign existing ones.
 But the gripe with named LET that one hears most often is the distance
 between the list of loop variables and the expressions to update them.
 Worse, the only association between the variables and expressions is
-position.  Foof-loop gives the option of named update: when continuing
-the loop, after any positional arguments, which are optional, an
-operand of the form (=> <variable> <expression>) updates the value of
-loop variable <variable> to <expression>.  For example, to partition a
-list into two lists, of the elements that satisfy a predicate and the
-elements that do not, we can update one of the two lists:
+position.  Foof-loop gives the option of named update: the loop's name
+is bound to a macro, not a procedure, so that when continuing the loop,
+after any positional arguments, which are optional, an operand of the
+form (=> <variable> <expression>) updates the value of loop variable
+<variable> to <expression>.  For example, to partition a list into two
+lists, of the elements that satisfy a predicate and the elements that
+do not, we can update one of the two lists:
 
   (define (partition predicate list)
     (loop continue ((for element (in-list list))
