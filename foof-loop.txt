@@ -1249,50 +1249,45 @@ available in the body of the loop or whether only the fully accumulated
 result is available in the final expression, and whether the
 accumulator accepts an optional initial value argument.
 
-The syntax of accumulators is as follows:
+Accumulators generally have the following forms:
 
 - Unconditional:
 
     (FOR <result> (<accumulating> <datum>))
 
-  <Datum> is evaluated at each iteration in an environment with all
-  loop, entry, and body variables bound from the current iteration.
+  <Datum> is evaluated and its value accumulated.
 
-- Conditional -- evaluate and accumulate <datum> if and only if
-  <condition> is not false:
+- Conditional:
 
     (FOR <result> (<accumulating> <datum> (IF <condition>)))
 
-  <Datum> and <condition> are evaluated at each iteration in an
-  environment with all loop, entry, and body variables bound from the
-  current iteration.
+  <Condition> is evaluated; if it yields true, <datum> is evaluated and
+  accumulated.
 
-- Conditional -- if <condition> is not false, apply the value of
-  <mapper> to the value of <condition> to yield the value to
-  accumulate:
+- COND-style -- if <condition> is true, apply the value of <mapper> to
+  the value of <condition> to yield the value to accumulate:
 
     (FOR <result> (<accumulating> <condition> => <mapper>))
 
-  <Condition> and <mapper> are evaluated at each iteration in an
-  environment with all loop, entry, and body variables bound from the
-  current iteration.  <Mapper> is evaluated only if <condition> is not
-  false.
+  <Condition> is evaluated; if it yields true, <mapper> is evaluated
+  and its value applied to the value of <condition>.  What <mapper>
+  returns is accumulated.
 
-- Generalized conditional, as in SRFI 61-style `=>' clauses in COND --
-  evaluate <generator>, and if <tester> applied to all the values
-  returned by <generator> returns true, accumulate the value returned
-  by <mapper> when applied to all the values returned by <generator>:
+- Extended (SRFI 61) COND-style:
 
     (FOR <result> (<accumulating> <generator> <tester> => <mapper>))
 
-  <Generator>, <tester>, and <mapper> are evaluated at each iteration
-  in an environment with all loop, entry, and body variables bound from
-  the current iteration.  <Mapper> is evaluated only if <test> yields
-  true.
+  <Generator> and <tester> are evaluated, and the value of <tester>
+  applied to arguments of the values yielded by <generator>.  If
+  <tester> returns true, <mapper> is evaluated and its value applied
+  also to arguments of the values yielded by <generator>.  What
+  <mapper> returns is accumulated.
 
-Some accumulators also have initial values, supplied with an optional
-(INITIAL <initial-value>) form before any of the other arguments to the
-accumulator.
+Subexpressions such as <datum>, <condition>, &c., are evaluated in an
+environment with all loop, entry, and body variables bound from the
+current iteration.  Some accumulators also have initial values,
+supplied with an optional (INITIAL <initial-value>) form before any of
+the other arguments to the accumulator.
 
 Accumulators that are allowed to operate by destructively modifying
 internal state are marked with `!' suffixes.  These accumulators are
