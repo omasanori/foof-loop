@@ -188,9 +188,9 @@ definition of REVERSE-MAP is unchanged by substituting LOOP for LET:
 
 The loop clauses (<variable> <initializer>) and (WITH <variable>
 <initializer>) are both equivalent to named LET bindings.  Passing
-arguments to CONTINUE updates the respective loop variables.  As with
-named LET, the update binds new variables, and does not assign existing
-ones.
+arguments to CONTINUE updates the corresponding loop variables by
+position.  As with named LET, the update binds new variables, and does
+not assign existing ones.
 
 But the gripe with named LET that one hears most often is the distance
 between the list of loop variables and the expressions to update them.
