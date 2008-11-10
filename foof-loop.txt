@@ -343,19 +343,33 @@ Let me say it once more, to be sure that the reader understand.
 
 Lower bounds are inclusive.  Upper bounds are exclusive.
 
-The reason is that reverse iteration is extremely counter-intuitive,
-and any inconsistency in convention is sure to be an eternal source of
-off-by-one errors.  This convention makes off-by-one errors in reverse
-iteration not impossible but at least easier to avoid.  The use of
-inclusive lower bounds and exclusive upper bounds has convenient
-properties for many programs and is already very much established in
-Scheme.
+Reverse iteration is extremely counter-intuitive.  One might be tempted
+to say that starting bounds should be inclusive and that ending bounds
+should be exclusive; an earlier version of foof-loop followed this
+convention.  This convention led to off-by-one adjustments galore:
 
-If a programmer must use any other bounding convention, that programmer
-should draw attention to them as exceptions to the rule.  Use inclusive
-lower bounds and exclusive upper bounds if possible; if not, write the
-rules explicitly using WITH, LET, and UNTIL clauses.  For example, to
-loop with both bounds inclusive, write:
+  (loop ((for element
+              (in-vector-reverse vector
+                                 (- (vector-length vector) 1)
+                                 -1)))
+    ...)
+
+This fragment is ugly and error-prone.  It leads to possibly negative
+`indices' into a vector.  (As an aside, C does not permit pointers to
+locations preceding the starts of array objects, but does permit
+pointers to locations one element past the ends of array objects.)  The
+same fragment reads much better if lower bounds are inclusive and upper
+bounds are exclusive:
+
+  (loop ((for element
+              (in-vector-reverse vector (vector-length vector) 0)))
+    ...)
+
+If one must use any other bounding convention, one should draw
+attention to them as exceptions to the rule.  Use inclusive lower
+bounds and exclusive upper bounds if possible; if not, write the rules
+explicitly using WITH, LET, and UNTIL clauses.  For example, to loop
+with both bounds inclusive, write:
 
   (loop (...
          (with i start (+ i step))
