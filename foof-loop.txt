@@ -33,7 +33,7 @@ iteration through a vector, and many other patterns of iteration, can
 be mapped.  Foof-loop names this structure and several of these
 patterns.
 
-*** Basic Looping: Named LET versus DO versus LOOP
+*** Basic Looping: DO, Named LET, and LOOP
 
 Consider a loop that counts the number of items in a list that satisfy
 a predicate.  In standard Scheme, this might be written with named LET
@@ -120,7 +120,7 @@ whose mechanism is chosen from whether the input is a list, a vector,
 &c.  The author has experimented inconclusively with a generic
 protocol, based on Dylan's collections, to implement such iterators.)
 
-*** Explicit Control of Iteration
+*** Controlling Loops
 
 An astute reader might wonder why we need `=>' before the final
 expression whose value the loop will return; another astute reader
@@ -269,7 +269,7 @@ procedure (RANDOM-INTEGER <n>) yielding an integer between 0
         (vector-set! vector i (vector-ref vector j))
         (vector-set! vector j element))))
 
-*** Numeric Iteration
+*** Iterating over Numbers
 
 There are two iterators for iterating over numbers: UP-FROM and
 DOWN-FROM.  (These names violate the convention of the prefix of `IN-'
