@@ -172,8 +172,8 @@ each element of a list LIST followed by a newline:
 
 A third astute reader -- not necessarily distinct from the first two --
 may wonder still how LOOP can be as expressive as named LET, with which
-one can update the loop variables (which we introduced in LOOP using
-WITH clauses) when explicitly continuing the.  One can do this with
+one can update loop variables (which we introduced in LOOP using WITH
+clauses) when explicitly continuing the loop.  One can do this too with
 LOOP by passing arguments when continuing the loop; LOOP is a drop-in
 replacement for named LET, if we use the loop's name only in operator
 positions, the reason for which will become clear shortly.  This
