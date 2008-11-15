@@ -24,14 +24,16 @@ details on the implementation.
 
 ** Introduction
 
-Every computer program has loops.  There are too many flavours of loops
-to classify them all, but common looping idioms admit classification.
-A loop through a list CARs and CDRs its way to the end.  A loop through
-a vector steps an index from one bound to another.  Most loops can be
-broken down into common parts into which iteration through a list,
-iteration through a vector, and many other patterns of iteration, can
-be mapped.  Foof-loop names this structure and several of these
-patterns.
+Every useful program has loops.  There are too many flavours of loops
+to classify all, but patterns worth naming recur.  Named LET and DO
+capture two flavours, but Scheme lacks any name for the pattern of
+looping through a list, CARing and CDRing to the end; or the pattern of
+looping through a vector, stepping indices from one bound to another.
+Procedures such as MAP and FOLD use these patterns, but compose poorly;
+one cannot easily FOLD a list and MAP a vector in parallel to yield a
+folded value and a mapped vector.  Foof-loop gives names to these
+patterns by which they can be composed together in a unified LOOP
+macro.
 
 *** Basic Looping: DO, Named LET, and LOOP
 
