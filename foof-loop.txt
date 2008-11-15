@@ -499,7 +499,7 @@ available inside the body of the loop; only once all the lines have
 been listed -- in reverse -- by IN-LIST will it reverse the list and
 bind the variable LINES, in the final expression.  Fortunately, we can
 force the loop to terminate and evaluate the final expression with all
-the bindings we expect with WHILE or UNTIL:
+the bindings we expect, using WHILE or UNTIL:
 
   (define (read-initial-non-empty-lines input-port)
     (loop ((for line (in-port input-port read-line))
