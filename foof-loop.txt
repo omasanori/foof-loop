@@ -354,7 +354,7 @@ convention, which led to off-by-one adjustments galore:
                                  -1)))
     ...)
 
-This fragment is ugly and error-prone.  It leads to possibly negative
+This fragment is ugly and error-prone.  It may lead to negative
 `indices' into a vector.  (As an aside, C does not permit pointers to
 locations preceding the starts of array objects, but does permit
 pointers to locations one element past the ends of array objects.)  The
