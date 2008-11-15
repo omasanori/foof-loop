@@ -334,10 +334,10 @@ exclusive.
 
 The number in DOWN-FROM, the index in IN-VECTOR-REVERSE, and the loop
 variable in any other iterator of descending numbers, is decremented by
-the step, not when the loop variable updated, but on entry to the loop.
-This means that if the loop variable is initialized to 0, its first
-value in the loop body will be -1, not 0; and if it is updated to N,
-the next value that it may have in the loop body will be N - 1.
+the step, not when loop variables are updated, but on entry to the
+loop.  This means that if the loop variable is initialized to 0, its
+first value in the loop body will be -1, not 0; and if it is updated to
+N, the next value that it may have in the loop body will be N - 1.
 
 Let me say it once more, to be sure that the reader understand.
 
