@@ -298,9 +298,9 @@ less than N:
          (with evens '() (cons integer evens)))
     => (reverse evens))
 
-We can also omit TO in order to iterate without bound, which presumably
-we intend to terminate on some other condition.  For example, if we
-assume lists to be finite and non-circular, this procedure computes
+We can also omit TO in order to iterate without bound; presumably,
+then, we intend to terminate on some other condition.  For example, if
+we assume lists to be finite and non-circular, this procedure computes
 their lengths:
 
   (define (unsafe-length list)
