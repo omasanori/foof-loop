@@ -345,8 +345,8 @@ Lower bounds are inclusive.  Upper bounds are exclusive.
 
 Reverse iteration is extremely counter-intuitive.  One might be tempted
 to say that starting bounds should be inclusive and that ending bounds
-should be exclusive; an earlier version of foof-loop followed this
-convention.  This convention led to off-by-one adjustments galore:
+should be exclusive.  An earlier version of foof-loop followed this
+convention, which led to off-by-one adjustments galore:
 
   (loop ((for element
               (in-vector-reverse vector
