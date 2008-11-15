@@ -510,9 +510,9 @@ the bindings we expect, using WHILE or UNTIL:
 Iteration will terminate either when READ-LINE returns an EOF object,
 tested implicitly by IN-PORT, or when the line read is an empty string,
 tested explicitly by the user.  In either case, LISTING will bind LINES
-to the list of lines in the final expression, which we return there.
-By the way, the order of the clauses is irrelevant; we could just as
-well have written:
+to the list of lines, which we return in the final expression.  By the
+way, the order of the clauses is irrelevant; we could just as well have
+written:
 
   (define (read-initial-non-empty-lines input-port)
     (loop ((until (string-empty? line))
