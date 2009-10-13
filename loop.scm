@@ -155,7 +155,7 @@
      (SYNTACTIC-ERROR message (FOR variable ... (iterator . arguments))))))
 
 (define-syntax %loop-check
-  (syntax-rules ()
+  (syntax-rules (CONTEXT)
     ((%LOOP-CHECK syntactic-check operand
                   (CONTEXT iterator (variable ...) arguments)
                   if-ok)
