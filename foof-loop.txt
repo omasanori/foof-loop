@@ -695,6 +695,14 @@ The loop is controlled by the loop clauses:
     variables, and user variables bound.  If true, the iteration
     continues for WHILE and terminates for UNTIL, and vice versa.
 
+Beware:  The interaction between user termination conditions and final
+expressions can be confusing, because they are evaluated in different
+environments, in which some iterators, such as DOWN-FROM, shadow some
+variables, so that it appears that a user termination condition and a
+final expression disagree on the value of the `same' variable; see the
+section on DOWN-FROM for more details.  Of course, the two variables
+are not the same; they merely share a name.
+
 *** Lazy Loops
 
 (LAZY-LOOP <loop-name> (<loop-clause> ...)
@@ -1156,37 +1164,39 @@ at most, support for iterators to supply declarations in the loop.
   but the least value it attains before descending below <low>, which
   may or may not be <low>.  If DOWN-FROM is not given a lower bound,
   then <number> is an entry variable, initialized to <step> less than
-  the value of the loop variable <number>.  There are two consequences
-  to this, and two reasons motivating it:
+  the value of the loop variable <number>.
 
-    (C1) After updating <number> as a loop variable to some number N,
-         <number> as a body variable in the next iteration will be
-         <step> *less* than N.
+  The reason motivating the treatment of <number> in DOWN-FROM is that,
+  as repeated in the introduction, lower bounds are inclusive, and
+  upper bounds are exclusive -- but here, <high> - <low> may not be an
+  integral multiple of <step>, so that <number> may never be <low>.
+  With the semantics chosen, though, <number> will be always in the
+  interval [<low>, <high>], and as a body variable always in the
+  interval [<low>, <high>), barring explicit updates to the loop
+  variable.
 
-    (C2) <Number> will be initialized to the value of <high>, but
-         unless the loop terminates with zero iterations, neither the
-         loop variable <number> nor the body variable <number> will
-         ever be observed with the value <high>.  In the rare case that
-         the loop terminates with zero iterations, <number> may be
-         observed in the final expression with the value of <high>.
+  There are three important consequences to this treatment of <number>:
 
-    (R1) As repeated in the introduction, lower bounds are inclusive,
-         and upper bounds are exclusive.  However, <high> - <low> may
-         not be an integral multiple of <step>, so that <number> may
-         never be <low>.  With the semantics chosen, <number> will at
-         least always be in the interval [<low>, <high>], and in fact
-         as a body variable always in the interval [<low>, <high>);
-         only in the rare case of a loop terminated after zero
-         iterations will <number> be observable with the value <high>.
-         (Of course, with explicit updates, it may take on any value.)
+  1. After updating <number> as a loop variable to some number N,
+     <number> as a body variable in the next iteration will be
+     <step> *less* than N.
 
-    (R2) When there is no lower bound, it is often useful (a) to write
-         user-supplied termination conditions in terms of <number>, and
-         (b) to use, in the final expression, the value of <number>
-         that induced termination of the loop.  The example of a vector
-         quick-sorting routine below illustrates such a use of <number>
-         in scanning backward from the end of a subvector past elements
-         greater than the pivot.
+  2. <Number> will be initialized to the value of <high>, but unless
+     the loop terminates with zero iterations, neither the loop
+     variable <number> nor the body variable <number> will ever be
+     observed with the value <high>.  In the rare case that the loop
+     terminates with zero iterations, <number> may be observed in the
+     final expression with the value of <high>.
+
+  3. There is an unfortunate interaction between
+     - DOWN-FROM with a lower bound,
+     - references to <number> in the final expression, and
+     - user termination conditions,
+     because in that case, the final expression is closed over the
+     entry binding of <number>, but user termination conditions are
+     evaluated in the scope of the body binding of <number>.  Thus, the
+     user termination condition and the final expression see different
+     values of their respective variables named <number>.
 
   The more persevering reader, no doubt now exhausted by the above
   tortuous contortions of explanation, will be relieved to escape into
@@ -1224,7 +1234,7 @@ at most, support for iterators to supply declarations in the loop.
                      (proceed (=> primes (cons i primes))))
               (proceed)))))
 
-    (define (vector-quick-sort! elt< vector start end)
+    (define (vector-quick-sort! vector start end elt<)
       (loop sort ((start start) (end end))
         (if (< 1 (- end start))
             (let ((pivot (select-pivot vector start end)))
@@ -1240,6 +1250,47 @@ at most, support for iterators to supply declarations in the loop.
                              (continue (+ i 1) j))
                       (begin (sort (=> end i))
                              (sort (=> start (+ j 1)))))))))))
+
+  In the last example, observe that the correctness of the indexing
+  depends on ELT< totally ordering the elements of the vector.  A buggy
+  ELT< may cause that definition of VECTOR-QUICK-SORT! to use indices
+  out of the bounds of the vector.  In an attempt to make the procedure
+  more robust, one might change the loops for i and j to be instead
+
+    (loop ((for i (up-from i (to end)))
+           (while (elt< (vector-ref vector i) pivot)))
+      => i)
+
+  and
+
+    (loop ((for j (down-from j (to start)))
+           (while (elt< pivot (vector-ref vector j))))
+      => j)
+
+  Unfortunately, the loop for j using DOWN-FROM does not work.  The
+  reason is that the final expression, j, is closed over the value of j
+  as an entry variable -- before j is rebound as a body variable to (-
+  j 1) and the user termination condition is evaluated in the shadowed
+  scope.  Thus, the user termination condition and the final expression
+  use different indices.
+
+  Instead, one should avoid mixing bounded DOWN-FROM with user
+  termination conditions by writing
+
+    (loop scan ((for j (down-from j (to start))))
+      => j
+      (if (elt< pivot (vector-ref vector j)) (scan) j))
+
+  or, if you trust ELT< to be correct,
+
+    (loop scan ((for j (down-from j)))
+      (if (elt< pivot (vector-ref vector j)) (scan) j))
+
+  Alternatively, one could use IN-VECTOR-REVERSE rather than DOWN-FROM:
+
+    (loop scan ((for vj j (in-vector-reverse vector j start)))
+      => j
+      (if (elt< pivot vj) (scan) j))
 
 *** Accumulating
 
