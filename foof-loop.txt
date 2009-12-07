@@ -770,7 +770,7 @@ Each <*-bvl> is a bound variable list supplied by an iterator or by the
 user.  Each <*-producer> is an expression yielding multiple values to
 be distributed to the corresponding bound variable list.  The
 <user-bvl>s are from user-supplied LET and LET-VALUES clauses; the
-<user-termination-conditions> are from WHILE and UNTIL clauses.
+<user-termination-condition>s are from WHILE and UNTIL clauses.
 
 LOOP-PROCEDURE is a name invisible to all of the forms involved in the
 loop except for the macro to which the loop's name is bound in the loop
