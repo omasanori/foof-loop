@@ -6,9 +6,7 @@ was written by Taylor R. Campbell and is placed in the Public Domain.
 The most recently released version of this file is permanently stored
 at <http://mumble.net/~campbell/scheme/foof-loop.txt>.  This file is
 temporarily stored, during the beta period of foof-loop version 9, at
-<http://mumble.net/~campbell/tmp/foof-loop.txt>.  This document is not
-finished: to be written is a section on augmented error reporting for
-the authors of iterators.
+<http://mumble.net/~campbell/tmp/foof-loop.txt>.
 
 ** Installation
 
@@ -1578,22 +1576,19 @@ errors that correspond with what was actually the input to the LOOP
 macro, these iterators pass error context descriptors to one another.
 Error context is of the form
 
-  (<name> (<variable> ...) <arguments> <message>),
+  (CONTEXT <name> (<variable> ...) <arguments>),
 
 where <name> is the name of the iterator, the <variable>s are the forms
-passed in the FOR clause before the iterator, <arguments> is the tail
-of the iterator subform inside the FOR clause, and <message> is a
-message explaining the error.  Because of limitations in SYNTAX-RULES,
-the error reporting macros cannot construct a message containing
-<name>; thus <message> should identify the name of the iterator.  The
-macro LOOP-CLAUSE-ERROR invokes SYNTACTIC-ERROR with a FOR form that
+passed in the FOR clause before the iterator, and <arguments> is the
+tail of the iterator subform inside the FOR clause.  The macro
+LOOP-CLAUSE-ERROR invokes SYNTACTIC-ERROR with a FOR form that
 corresponds with the original FOR form seen by LOOP:
 
-  (LOOP-CLAUSE-ERROR (<name> (<variable> ...) <arguments> <message>))
+  (LOOP-CLAUSE-ERROR (CONTEXT <name> (<variable> ...) <arguments>))
 
 expands to
 
-  (SYNTACTIC-ERROR <message>
+  (SYNTACTIC-ERROR "Malformed LOOP clause:"
                    (FOR <variable> ...
                         (<name> . <arguments>))).
 
@@ -1615,9 +1610,7 @@ that matches any possible invocation of the iterator from LOOP:
 
       ((IN-LIST variables arguments next . rest)
        ;; Ignore NEXT and REST; we only report the syntax error.
-       (LOOP-CLAUSE-ERROR 
-        (IN-LIST variables arguments
-                 "Malformed IN-LIST form in LOOP:")))))
+       (LOOP-CLAUSE-ERROR (CONTEXT IN-LIST variables arguments)))))
 
 With the appropriate definition of SYNTACTIC-ERROR shown below, if we
 misuse IN-LIST, we should get a helpful error message in most Schemes:
@@ -1625,8 +1618,46 @@ misuse IN-LIST, we should get a helpful error message in most Schemes:
   (loop ((for x y z (in-list)))
     (body x y z))
 
-  Syntax error: Malformed IN-LIST clause in LOOP:
+  Syntax error: Malformed LOOP clause:
                 (for x y z (in-list))
+
+**** Detailed Syntax Checks
+
+Several macros are provided to perform more detailed syntax checks.
+These take some argument from the syntax of an iterator invocation, an
+error context descriptor with which they signal an error if the syntax
+is invalid, and a form to which they expand if the syntax is valid.
+
+(LOOP-CLAUSE-ERROR-IF-NOT-NAME <name> <error-context> <if-valid>)
+
+  Checks whether <name> is a name.
+
+(LOOP-CLAUSE-ERROR-IF-NOT-NAMES (<name> ...) <error-context> <if-valid>)
+
+  Checks whether each <name> is a name.
+
+(LOOP-CLAUSE-ERROR-IF-NOT-BVL <bvl> <error-context> <if-valid>)
+
+  Checks whether <bvl> is a bound variable list.
+
+With these, we can write IN-LIST to check syntax even more carefully:
+
+  (define-syntax in-list
+    (syntax-rules ()
+      ((IN-LIST (element-variable) (list-expression) next . rest)
+       (LOOP-CLAUSE-ERROR-IF-NOT-NAME element-variable
+           (CONTEXT IN-LIST (element-variable) (list-expression))
+         (next (((LIST) list-expression))    ;Outer bindings
+               ((PAIR LIST (CDR PAIR)))      ;Loop variables
+               ()                            ;Entry bindings
+               ((NOT (PAIR? PAIR)))          ;Termination conditions
+               (((element-variable)          ;Body bindings
+                 (CAR PAIR)))
+               ()                            ;Final bindings
+               . rest)))
+
+      ((IN-LIST variables arguments next . rest)
+       (LOOP-CLAUSE-ERROR (CONTEXT IN-LIST variables arguments)))))
 
 **** Pitfalls of Reporting Syntax Errors
 
