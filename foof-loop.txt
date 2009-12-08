@@ -1152,29 +1152,16 @@ at most, support for iterators to supply declarations in the loop.
   parameter is supplied, they must furthermore all be real numbers.
   They are all evaluated once before the loop begins.
 
-  <Number> is a loop variable in UP-FROM.  In DOWN-FROM, the treatment
-  of <number> is somewhat subtle in order to do the right thing as much
-  as possible, illustrated in the examples (to which the baffled reader
-  may wish to skip immediately).  <Number> is a loop variable, and
-  alternately an entry variable or a body variable, depending on the
-  use of DOWN-FROM.  If DOWN-FROM is given a lower bound, then <number>
-  is a body variable, and its value will never descend below <low> as a
-  body variable.  The final value of the variable will be not <low>,
-  but the least value it attains before descending below <low>, which
-  may or may not be <low>.  If DOWN-FROM is not given a lower bound,
-  then <number> is an entry variable, initialized to <step> less than
-  the value of the loop variable <number>.
+  <Number> is a loop variable in UP-FROM.  In DOWN-FROM, <number> is
+  both a loop variable and a body variable, in the latter case having
+  the value (- <number (as a loop variable)> <step>).  Thus, <number>
+  always lies in the interval [<low>, <high>] for both UP-FROM and
+  DOWN-FROM, and in the body of a loop, it always lies in the interval
+  [<low>, <high>), assuming that the loop does not explicitly update
+  <number>.
 
-  The reason motivating the treatment of <number> in DOWN-FROM is that,
-  as repeated in the introduction, lower bounds are inclusive, and
-  upper bounds are exclusive -- but here, <high> - <low> may not be an
-  integral multiple of <step>, so that <number> may never be <low>.
-  With the semantics chosen, though, <number> will be always in the
-  interval [<low>, <high>], and as a body variable always in the
-  interval [<low>, <high>), barring explicit updates to the loop
-  variable.
-
-  There are three important consequences to this treatment of <number>:
+  There are three important consequences to this somewhat special
+  treatment of <number> by DOWN-FROM:
 
   1. After updating <number> as a loop variable to some number N,
      <number> as a body variable in the next iteration will be
@@ -1188,14 +1175,15 @@ at most, support for iterators to supply declarations in the loop.
      final expression with the value of <high>.
 
   3. There is an unfortunate interaction between
-     - DOWN-FROM with a lower bound,
+     - DOWN-FROM,
      - references to <number> in the final expression, and
      - user termination conditions,
-     because in that case, the final expression is closed over the
-     entry binding of <number>, but user termination conditions are
-     evaluated in the scope of the body binding of <number>.  Thus, the
-     user termination condition and the final expression see different
-     values of their respective variables named <number>.
+     because the final expression is closed over the binding of
+     <number> as a loop variable, but user termination conditions are
+     evaluated in the scope of the binding of <number> as a body
+     variable.  Thus, the user termination condition and the final
+     expression see different values of their respective variables
+     named <number>.
 
   The more persevering reader, no doubt now exhausted by the above
   tortuous contortions of explanation, will be relieved to escape into
@@ -1238,58 +1226,34 @@ at most, support for iterators to supply declarations in the loop.
         (if (< 1 (- end start))
             (let ((pivot (select-pivot vector start end)))
               (loop continue ((i start) (j end))
-                (let ((i (loop ((for i (up-from i))
-                                (while (elt< (vector-ref vector i) pivot)))
-                           => i))
-                      (j (loop ((for j (down-from j))
-                                (while (elt< pivot (vector-ref vector j))))
-                           => j)))
+                (let ((i (loop scan ((for i (up-from i)))
+                           => i
+                           (if (elt< (vector-ref vector i) pivot) (scan) i)))
+                      (j (loop scan ((for j (down-from j)))
+                           => j
+                           (if (elt< pivot (vector-ref vector j)) (scan) j))))
                   (if (< i j)
                       (begin (vector-exchange! vector i j)
                              (continue (+ i 1) j))
                       (begin (sort (=> end i))
                              (sort (=> start (+ j 1)))))))))))
 
-  In the last example, observe that the correctness of the indexing
-  depends on ELT< totally ordering the elements of the vector.  A buggy
-  ELT< may cause that definition of VECTOR-QUICK-SORT! to use indices
-  out of the bounds of the vector.  In an attempt to make the procedure
-  more robust, one might change the loops for i and j to be instead
+  It is tempting in the last example to use user-supplied termination
+  conditions for the inner loops, such as
 
-    (loop ((for i (up-from i (to end)))
-           (while (elt< (vector-ref vector i) pivot)))
-      => i)
-
-  and
-
-    (loop ((for j (down-from j (to start)))
+    (loop ((for j (down-from j))
            (while (elt< pivot (vector-ref vector j))))
       => j)
 
-  Unfortunately, the loop for j using DOWN-FROM does not work.  The
-  reason is that the final expression, j, is closed over the value of j
-  as an entry variable -- before j is rebound as a body variable to (-
-  j 1) and the user termination condition is evaluated in the shadowed
-  scope.  Thus, the user termination condition and the final expression
-  use different indices.
-
-  Instead, one should avoid mixing bounded DOWN-FROM with user
-  termination conditions by writing
-
-    (loop scan ((for j (down-from j (to start))))
-      => j
-      (if (elt< pivot (vector-ref vector j)) (scan) j))
-
-  or, if you trust ELT< to be correct,
-
-    (loop scan ((for j (down-from j)))
-      (if (elt< pivot (vector-ref vector j)) (scan) j))
-
-  Alternatively, one could use IN-VECTOR-REVERSE rather than DOWN-FROM:
-
-    (loop scan ((for vj j (in-vector-reverse vector j start)))
-      => j
-      (if (elt< pivot vj) (scan) j))
+  However, this would bring upon the user the consequences of the
+  unfortunate interaction between DOWN-FROM, references to <number>
+  (here j) in the final expression, and user termination conditions.
+  This would yield a value of j off by one, because the final
+  expression is closed over the binding of j as a loop variable, before
+  the iterator termination conditions (of which there are none) have
+  been tested, the body bindings (binding j to (- j 1)) created, and
+  the user termination conditions evaluated -- in an environment with
+  the body bindings.
 
 *** Accumulating
 
